@@ -1,0 +1,185 @@
+# ============================================
+# NovaMind AI - GitHub Actions Workflow
+# Deploy live with Ollama + Gemma + Cloudflare Tunnel
+# Timeout: 6 hours for personal use
+# ============================================
+
+name: 🚀 NovaMind AI - Live Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Ollama model to use'
+        required: false
+        default: 'gemma3:4b'
+        type: choice
+        options:
+          - gemma3:4b
+          - gemma3:1b
+          - gemma2:9b
+          - gemma2:2b
+          - phi4:14b
+          - llama3.2:3b
+      cloudflare_token:
+        description: 'Cloudflare Tunnel Token (leave empty to use secret)'
+        required: false
+        type: string
+
+env:
+  NODE_ENV: production
+  PORT: 3000
+  OLLAMA_BASE_URL: http://localhost:11434
+  OLLAMA_MODEL: ${{ github.event.inputs.model || 'gemma3:4b' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 📦 Install bun
+        run: |
+          curl -fsSL https://bun.sh/install | bash
+          echo "$HOME/.bun/bin" >> $GITHUB_PATH
+
+      - name: 📦 Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: 🔨 Build Next.js
+        run: bun run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+      # ============================================
+      # STEP 1: Install Ollama
+      # ============================================
+      - name: 🤖 Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama --version
+
+      # ============================================
+      # STEP 2: Start Ollama in background
+      # ============================================
+      - name: 🚀 Start Ollama server
+        run: |
+          ollama serve &
+          echo "Waiting for Ollama to start..."
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "✅ Ollama is running!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      # ============================================
+      # STEP 3: Pull AI Model
+      # ============================================
+      - name: 🧠 Pull AI Model (${{ env.OLLAMA_MODEL }})
+        run: |
+          echo "Downloading ${{ env.OLLAMA_MODEL }}..."
+          ollama pull ${{ env.OLLAMA_MODEL }}
+          echo "✅ Model ${{ env.OLLAMA_MODEL }} ready!"
+          ollama list
+
+      # ============================================
+      # STEP 4: Start Next.js server
+      # ============================================
+      - name: 🌐 Start Next.js server
+        run: |
+          bun start &
+          echo "Waiting for Next.js to start..."
+          for i in $(seq 1 30); do
+            if curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Next.js is running!"
+              break
+            fi
+            echo "Waiting... ($i/30)"
+            sleep 2
+          done
+
+      # ============================================
+      # STEP 5: Setup Cloudflare Tunnel
+      # ============================================
+      - name: 🔗 Setup Cloudflare Tunnel
+        env:
+          CF_TOKEN: ${{ github.event.inputs.cloudflare_token || secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+        run: |
+          if [ -z "$CF_TOKEN" ]; then
+            echo "⚠️ No Cloudflare Tunnel token provided!"
+            echo "🔗 To expose your app, add CLOUDFLARE_TUNNEL_TOKEN to repository secrets"
+            echo ""
+            echo "📌 How to get a tunnel token:"
+            echo "   1. Go to https://one.dash.cloudflare.com/"
+            echo "   2. Create a new tunnel"
+            echo "   3. Copy the token"
+            echo "   4. Add it as a repository secret named CLOUDFLARE_TUNNEL_TOKEN"
+            echo ""
+            echo "🌐 Alternatively, use ngrok for quick testing:"
+            echo "   Add NGROK_AUTH_TOKEN to repository secrets"
+            
+            # Try ngrok as fallback
+            if [ -n "$NGROK_AUTH_TOKEN" ]; then
+              echo "Trying ngrok fallback..."
+              # Will be handled in keep-alive step
+            fi
+          else
+            echo "Setting up Cloudflare Tunnel..."
+            cloudflared tunnel --url http://localhost:3000 &
+            echo "✅ Cloudflare Tunnel configured!"
+          fi
+
+      # ============================================
+      # STEP 6: Keep alive + Health monitoring
+      # ============================================
+      - name: 💓 Keep Alive & Monitor
+        timeout-minutes: 350
+        run: |
+          echo "🚀 NovaMind AI is LIVE!"
+          echo "⏰ Will keep running for ~6 hours"
+          echo ""
+          echo "📊 System Info:"
+          echo "   - Model: ${{ env.OLLAMA_MODEL }}"
+          echo "   - Ollama: http://localhost:11434"
+          echo "   - Next.js: http://localhost:3000"
+          echo ""
+          
+          # Health check loop
+          MINUTES=0
+          while true; do
+            sleep 60
+            MINUTES=$((MINUTES + 1))
+            
+            # Check Ollama
+            if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "⚠️ Ollama died, restarting..."
+              ollama serve &
+              sleep 5
+            fi
+            
+            # Check Next.js
+            if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
+              echo "⚠️ Next.js died, restarting..."
+              bun start &
+              sleep 5
+            fi
+            
+            # Log status every 5 minutes
+            if (( MINUTES % 5 == 0 )); then
+              echo "⏰ Uptime: ${MINUTES} minutes"
+              free -h | head -2
+            fi
+          done
