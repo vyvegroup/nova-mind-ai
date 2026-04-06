@@ -1,7 +1,8 @@
 # ============================================
 # NovaMind AI - GitHub Actions Workflow
-# Deploy live with Ollama + Gemma + Cloudflare Quick Tunnel
+# Deploy live with Ollama + Gemma + Free Tunnel
 # FREE - No secret, no account, no registration needed
+# Uses localtunnel + cloudflared as fallback
 # Timeout: 6 hours for personal use
 # ============================================
 
@@ -92,55 +93,86 @@ jobs:
             sleep 2
           done
 
-      - name: 🔗 Cloudflare Quick Tunnel (FREE)
+      - name: 🔗 Setup Tunnel (localtunnel + cloudflared)
         id: tunnel
         run: |
-          mkdir -p "$HOME/bin"
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O "$HOME/bin/cloudflared"
-          chmod +x "$HOME/bin/cloudflared"
-          export PATH="$HOME/bin:$PATH"
-
-          cloudflared tunnel --url http://localhost:3000 > /tmp/tunnel.log 2>&1 &
-
-          echo "⏳ Waiting for tunnel URL..."
           TUNNEL_URL=""
-          for i in $(seq 1 90); do
+
+          # METHOD 1: Try localtunnel (npm, free, no account)
+          echo "📡 Attempting localtunnel..."
+          npx --yes localtunnel --port 3000 > /tmp/tunnel.log 2>&1 &
+          LT_PID=$!
+
+          for i in $(seq 1 30); do
             sleep 2
-            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
+            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.loca\.lt' /tmp/tunnel.log 2>/dev/null | head -1)
             if [ -n "$TUNNEL_URL" ]; then
+              echo "✅ localtunnel connected: $TUNNEL_URL"
               break
             fi
-            echo "Waiting... ($i/90)"
+            echo "localtunnel waiting... ($i/30)"
           done
 
+          # METHOD 2: Fallback to cloudflared
           if [ -z "$TUNNEL_URL" ]; then
-            echo "❌ Tunnel failed"
-            cat /tmp/tunnel.log
+            echo "⚠️ localtunnel failed, trying cloudflared..."
+            kill $LT_PID 2>/dev/null
+            rm -f /tmp/tunnel.log
+
+            mkdir -p "$HOME/bin"
+            wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O "$HOME/bin/cloudflared"
+            chmod +x "$HOME/bin/cloudflared"
+
+            cloudflared tunnel --url http://localhost:3000 > /tmp/tunnel.log 2>&1 &
+            CF_PID=$!
+
+            for i in $(seq 1 30); do
+              sleep 2
+              TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
+              if [ -n "$TUNNEL_URL" ]; then
+                echo "✅ cloudflared connected: $TUNNEL_URL"
+                break
+              fi
+              echo "cloudflared waiting... ($i/30)"
+            done
+
+            if [ -z "$TUNNEL_URL" ]; then
+              kill $CF_PID 2>/dev/null
+            fi
+          fi
+
+          # Check result
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ All tunnel methods failed"
+            echo "--- localtunnel log ---"
+            cat /tmp/lt.log 2>/dev/null || echo "(no log)"
+            echo "--- cloudflared log ---"
+            cat /tmp/tunnel.log 2>/dev/null || echo "(no log)"
             exit 1
           fi
 
-          # Save as step output (accessible via API while running!)
+          # Save URL
           echo "url=$TUNNEL_URL" >> $GITHUB_OUTPUT
-          echo "✅ LIVE at: $TUNNEL_URL"
+          echo "$TUNNEL_URL" > /tmp/tunnel_url.txt
+          echo ""
+          echo "============================================"
+          echo "  🚀 NovaMind AI is LIVE!"
+          echo "  🌐 URL: $TUNNEL_URL"
+          echo "============================================"
 
-      - name: 📡 Create deployment status
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: 📡 Publish URL
+        if: success()
         run: |
-          TUNNEL_URL="${{ steps.tunnel.outputs.url }}"
-          # Create a deployment status so URL is visible in GitHub UI
-          echo "NovaMind AI is LIVE: $TUNNEL_URL" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 NovaMind AI is LIVE!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🚀 Access your AI" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "👉 **[$TUNNEL_URL]($TUNNEL_URL)**" >> $GITHUB_STEP_SUMMARY
+          echo "### 👉 Access: [${{ steps.tunnel.outputs.url }}](${{ steps.tunnel.outputs.url }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Next.js | ✅ Running |" >> $GITHUB_STEP_SUMMARY
-          echo "| Ollama | ✅ Running |" >> $GITHUB_STEP_SUMMARY
-          echo "| Model | ${{ env.OLLAMA_MODEL }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Ollama | ✅ ${{ env.OLLAMA_MODEL }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Tunnel | ✅ Connected |" >> $GITHUB_STEP_SUMMARY
+          echo "| Uptime | Up to 6 hours |" >> $GITHUB_STEP_SUMMARY
 
       - name: 💓 Keep Alive
         timeout-minutes: 350
@@ -150,15 +182,17 @@ jobs:
             sleep 60
             MINUTES=$((MINUTES + 1))
 
-            if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-              echo "⚠️ [$MINUTES min] Ollama died, restarting..."
-              ollama serve &
-              sleep 10
-            fi
-
+            # Check Next.js
             if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
               echo "⚠️ [$MINUTES min] Next.js died, restarting..."
               bun start &
+              sleep 10
+            fi
+
+            # Check Ollama
+            if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "⚠️ [$MINUTES min] Ollama died, restarting..."
+              ollama serve &
               sleep 10
             fi
 
