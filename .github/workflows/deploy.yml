@@ -160,19 +160,30 @@ jobs:
           echo "  🌐 URL: $TUNNEL_URL"
           echo "============================================"
 
-      - name: 📡 Publish URL
+      - name: 📡 Publish URL (Save to repo)
         if: success()
+        env:
+          TUNNEL_URL: ${{ steps.tunnel.outputs.url }}
         run: |
+          # Save tunnel URL to repo so it's readable via API
+          echo "$TUNNEL_URL" > tunnel-url.txt
+          git config user.name "nova-bot"
+          git config user.email "nova@bot"
+          git add tunnel-url.txt
+          git commit -m "tunnel: $TUNNEL_URL" || true
+          # Push to tunnel-info branch (won't trigger main workflow)
+          git push origin HEAD:refs/heads/tunnel-info --force 2>/dev/null || true
+
+          # Also write step summary for GitHub UI
           echo "## 🚀 NovaMind AI is LIVE!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 👉 Access: [${{ steps.tunnel.outputs.url }}](${{ steps.tunnel.outputs.url }})" >> $GITHUB_STEP_SUMMARY
+          echo "### 👉 [$TUNNEL_URL]($TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Next.js | ✅ Running |" >> $GITHUB_STEP_SUMMARY
           echo "| Ollama | ✅ ${{ env.OLLAMA_MODEL }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tunnel | ✅ Connected |" >> $GITHUB_STEP_SUMMARY
-          echo "| Uptime | Up to 6 hours |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tunnel | ✅ $TUNNEL_URL |" >> $GITHUB_STEP_SUMMARY
 
       - name: 💓 Keep Alive
         timeout-minutes: 350
