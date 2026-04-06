@@ -1,6 +1,7 @@
 # ============================================
 # NovaMind AI - GitHub Actions Workflow
-# Deploy live with Ollama + Gemma + Cloudflare Tunnel
+# Deploy live with Ollama + Gemma + Cloudflare Quick Tunnel
+# FREE - No secret, no account, no registration needed
 # Timeout: 6 hours for personal use
 # ============================================
 
@@ -21,12 +22,7 @@ on:
           - gemma3:1b
           - gemma2:9b
           - gemma2:2b
-          - phi4:14b
           - llama3.2:3b
-      cloudflare_token:
-        description: 'Cloudflare Tunnel Token (leave empty to use secret)'
-        required: false
-        type: string
 
 env:
   NODE_ENV: production
@@ -70,9 +66,9 @@ jobs:
           ollama --version
 
       # ============================================
-      # STEP 2: Start Ollama in background
+      # STEP 2: Start Ollama + Pull Model
       # ============================================
-      - name: 🚀 Start Ollama server
+      - name: 🚀 Start Ollama + Pull Model
         run: |
           ollama serve &
           echo "Waiting for Ollama to start..."
@@ -85,20 +81,15 @@ jobs:
             sleep 2
           done
 
-      # ============================================
-      # STEP 3: Pull AI Model
-      # ============================================
-      - name: 🧠 Pull AI Model (${{ env.OLLAMA_MODEL }})
-        run: |
-          echo "Downloading ${{ env.OLLAMA_MODEL }}..."
+          echo "🧠 Pulling ${{ env.OLLAMA_MODEL }}..."
           ollama pull ${{ env.OLLAMA_MODEL }}
-          echo "✅ Model ${{ env.OLLAMA_MODEL }} ready!"
+          echo "✅ Model ready!"
           ollama list
 
       # ============================================
-      # STEP 4: Start Next.js server
+      # STEP 3: Start Next.js + Cloudflare Quick Tunnel
       # ============================================
-      - name: 🌐 Start Next.js server
+      - name: 🌐 Start Next.js
         run: |
           bun start &
           echo "Waiting for Next.js to start..."
@@ -111,75 +102,91 @@ jobs:
             sleep 2
           done
 
-      # ============================================
-      # STEP 5: Setup Cloudflare Tunnel
-      # ============================================
-      - name: 🔗 Setup Cloudflare Tunnel
-        env:
-          CF_TOKEN: ${{ github.event.inputs.cloudflare_token || secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+      - name: 🔗 Start Cloudflare Quick Tunnel (FREE)
         run: |
-          if [ -z "$CF_TOKEN" ]; then
-            echo "⚠️ No Cloudflare Tunnel token provided!"
-            echo "🔗 To expose your app, add CLOUDFLARE_TUNNEL_TOKEN to repository secrets"
-            echo ""
-            echo "📌 How to get a tunnel token:"
-            echo "   1. Go to https://one.dash.cloudflare.com/"
-            echo "   2. Create a new tunnel"
-            echo "   3. Copy the token"
-            echo "   4. Add it as a repository secret named CLOUDFLARE_TUNNEL_TOKEN"
-            echo ""
-            echo "🌐 Alternatively, use ngrok for quick testing:"
-            echo "   Add NGROK_AUTH_TOKEN to repository secrets"
-            
-            # Try ngrok as fallback
-            if [ -n "$NGROK_AUTH_TOKEN" ]; then
-              echo "Trying ngrok fallback..."
-              # Will be handled in keep-alive step
+          # Install cloudflared
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared
+          chmod +x /usr/local/bin/cloudflared
+          cloudflared --version
+
+          # Start quick tunnel - FREE, no login needed
+          cloudflared tunnel --url http://localhost:3000 2>&1 | tee /tmp/tunnel.log &
+
+          # Wait for tunnel URL
+          echo "⏳ Waiting for Cloudflare tunnel URL..."
+          TUNNEL_URL=""
+          for i in $(seq 1 60); do
+            TUNNEL_URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
+            if [ -n "$TUNNEL_URL" ]; then
+              echo "✅ Tunnel URL found: $TUNNEL_URL"
+              break
             fi
+            echo "Waiting for tunnel... ($i/60)"
+            sleep 2
+          done
+
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ Failed to get tunnel URL"
+            cat /tmp/tunnel.log
           else
-            echo "Setting up Cloudflare Tunnel..."
-            cloudflared tunnel --url http://localhost:3000 &
-            echo "✅ Cloudflare Tunnel configured!"
+            # Save URL to file for next step
+            echo "$TUNNEL_URL" > /tmp/tunnel_url.txt
+            echo ""
+            echo "============================================"
+            echo "  🚀 NovaMind AI is LIVE!"
+            echo "  🌐 URL: $TUNNEL_URL"
+            echo "  🤖 Model: ${{ env.OLLAMA_MODEL }}"
+            echo "============================================"
+          fi
+
+      - name: 📢 Output Tunnel URL
+        run: |
+          if [ -f /tmp/tunnel_url.txt ]; then
+            TUNNEL_URL=$(cat /tmp/tunnel_url.txt)
+            echo ""
+            echo "############################################"
+            echo "#                                          #"
+            echo "#   🚀 NovaMind AI is NOW LIVE! 🚀         #"
+            echo "#                                          #"
+            echo "#   👉 $TUNNEL_URL"
+            echo "#                                          #"
+            echo "############################################"
+            echo ""
+          else
+            echo "❌ No tunnel URL available"
           fi
 
       # ============================================
-      # STEP 6: Keep alive + Health monitoring
+      # STEP 4: Keep Alive + Monitor
       # ============================================
-      - name: 💓 Keep Alive & Monitor
+      - name: 💓 Keep Alive
         timeout-minutes: 350
         run: |
-          echo "🚀 NovaMind AI is LIVE!"
-          echo "⏰ Will keep running for ~6 hours"
-          echo ""
-          echo "📊 System Info:"
-          echo "   - Model: ${{ env.OLLAMA_MODEL }}"
-          echo "   - Ollama: http://localhost:11434"
-          echo "   - Next.js: http://localhost:3000"
-          echo ""
-          
-          # Health check loop
           MINUTES=0
           while true; do
             sleep 60
             MINUTES=$((MINUTES + 1))
-            
-            # Check Ollama
+
+            # Auto-restart Ollama if dead
             if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-              echo "⚠️ Ollama died, restarting..."
+              echo "⚠️ [$MINUTES min] Ollama died, restarting..."
               ollama serve &
-              sleep 5
+              sleep 10
+              # Re-pull model if needed
+              if ! ollama list | grep -q "${OLLAMA_MODEL%%:*}"; then
+                ollama pull $OLLAMA_MODEL
+              fi
             fi
-            
-            # Check Next.js
+
+            # Auto-restart Next.js if dead
             if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
-              echo "⚠️ Next.js died, restarting..."
+              echo "⚠️ [$MINUTES min] Next.js died, restarting..."
               bun start &
-              sleep 5
+              sleep 10
             fi
-            
-            # Log status every 5 minutes
-            if (( MINUTES % 5 == 0 )); then
-              echo "⏰ Uptime: ${MINUTES} minutes"
-              free -h | head -2
+
+            # Log every 10 min
+            if (( MINUTES % 10 == 0 )); then
+              echo "⏰ Uptime: ${MINUTES} min | Mem: $(free -h | awk 'NR==2{print $3}')"
             fi
           done
