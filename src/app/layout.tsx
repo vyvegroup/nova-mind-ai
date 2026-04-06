@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "NovaMind AI - Multi-Agent Live",
-  description: "AI Multi-Agent hệ thống live tự chủ với giao diện big-tech. Chạy Gemma locally qua Ollama, deploy bằng GitHub Actions + Cloudflare Tunnel.",
-  keywords: ["NovaMind", "AI", "Multi-Agent", "Gemma", "Ollama", "Local AI", "Chat"],
+  description: "AI Multi-Agent hệ thống live tự chủ với giao diện big-tech. Chạy Gemma 4 locally qua Ollama, deploy bằng GitHub Actions + Cloudflare Tunnel.",
+  keywords: ["NovaMind", "AI", "Multi-Agent", "Gemma 4", "Ollama", "Local AI", "Chat", "Vietnamese AI"],
   authors: [{ name: "NovaMind" }],
   icons: {
     icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>",
@@ -27,6 +27,9 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "NovaMind AI",
   },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
 };
 
 export const viewport: Viewport = {
@@ -34,7 +37,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#0a0a0b",
+  themeColor: "#8B5CF6",
 };
 
 export default function RootLayout({
@@ -44,6 +47,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" className="dark" suppressHydrationWarning>
+      <head>
+        {/* Android optimization meta tags */}
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="format-detection" content="telephone=no" />
+        <meta name="format-detection" content="email=no" />
+        <meta name="theme-color" content="#8B5CF6" />
+        <meta name="msapplication-TileColor" content="#8B5CF6" />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0a0b] text-foreground`}
       >

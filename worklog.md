@@ -137,3 +137,41 @@ Stage Summary:
 - 3 free tunnel fallbacks: localtunnel (primary), cloudflared (fallback), localhost.run (last resort)
 - All 5 agents verified working: Nova, CodeX, Athena, Stratos, Critique
 - Zero secrets/registration required for deployment
+
+---
+## Task ID: 8 - main-upgrade
+### Work Task
+Upgrade NovaMind AI to Gemma 4 with enhanced multi-agent system, file attachment feature, and Android browser optimization.
+
+### Work Summary
+
+**1. Gemma 4 Upgrade:**
+- Updated `.github/workflows/deploy.yml`: default model changed to `gemma4:2b`, model choices updated to gemma4:2b, gemma4:4b, gemma4:26b, gemma4:31b, gemma3:4b
+- Updated `src/lib/ollama.ts`: DEFAULT_MODEL changed to `gemma4:2b`
+- Updated `src/lib/types.ts`: All AGENT_DEFINITIONS system prompts enhanced with "Gemma 4 Thinking Mode" reasoning instructions, chain-of-thought support, and thinking/reasoning capabilities listed in each agent
+
+**2. Enhanced Multi-Agent System:**
+- Added 6th agent "Lens" (role: `analyzer`) - multimodal analysis agent for file/document understanding with color #EC4899, icon 🔬, capabilities including multimodal-analysis, document-understanding, code-analysis, data-extraction, summarization
+- Added chain-of-thought reasoning: all agents now include thinking/reasoning instructions, and the orchestrator generates step-by-step execution plans before delegating
+- Added multi-agent auto-chain mode: for complex tasks, automatically chains 2-3 agents in sequence (e.g., "viết code và review" → CodeX → Critique)
+- Enhanced intent classification with many more Vietnamese keywords, better scoring, and file-related keyword detection
+- New StreamChunk types: `chain_start` and `chain_step` for visual chain progress
+
+**3. File/Folder Selection Feature:**
+- Created `src/lib/fileManager.ts`: saveFile, readFile, readAllSessionFiles, listFiles, deleteFile, buildFileContextForPrompt with 5MB/file limit, 20MB total, 10 files/session
+- Created `src/app/api/files/route.ts`: POST (upload), GET (list), DELETE (remove) endpoints using FormData
+- Updated `src/app/api/chat/route.ts`: accepts `files` array in request body, passes to orchestrator for context
+- Updated `src/store/chat-store.ts`: added `attachedFiles` state, `addFile`, `addFiles`, `removeFile`, `clearFiles` actions
+- Updated ChatInterface: 📎 paperclip button inside input area, native `<input type="file" multiple>`, file chips with icons/sizes/removal, files included in chat requests
+
+**4. Android Browser Optimization:**
+- Updated `public/manifest.json`: `orientation: any`, `categories: ["productivity", "utilities"]`, proper SVG icons (512x512, 192x192, maskable)
+- Updated `src/app/layout.tsx`: mobile-web-app-capable, apple-mobile-web-app-capable, format-detection (telephone=no), theme-color meta tags
+- Updated `src/app/globals.css`: overscroll-behavior: none, -webkit-overflow-scrolling: touch, improved safe area insets, input font-size: 16px to prevent zoom, 100dvh support, active state feedback for touch
+- Updated ChatInterface: all interactive elements have min 44px touch targets, touch-action: manipulation, active:scale-95 feedback, visualViewport resize handler for keyboard
+
+**5. Build Verification:**
+- `bun run build` compiled successfully with zero errors
+- `bun run lint` passed with zero warnings
+- All routes verified: /, /api/chat, /api/health, /api/files, /api/debug
+- Dev server running normally on port 3000

@@ -1,5 +1,6 @@
 // ============================================
 // NovaMind AI - Chat API Route (Streaming SSE)
+// Enhanced with file context support
 // ============================================
 
 import { NextRequest } from 'next/server';
@@ -10,10 +11,11 @@ import type { AgentRole, Message } from '@/lib/types';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message, history, agentOverride } = body as {
+    const { message, history, agentOverride, files } = body as {
       message: string;
       history: Message[];
       agentOverride?: AgentRole;
+      files?: Array<{ name: string; content: string }>;
     };
 
     if (!message || typeof message !== 'string') {
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const generator = processMessage(message, history || [], agentOverride);
+          const generator = processMessage(message, history || [], agentOverride, files);
 
           for await (const chunk of generator) {
             const data = `data: ${JSON.stringify(chunk)}\n\n`;

@@ -1,10 +1,11 @@
 // ============================================
 // NovaMind AI - Chat Store (Zustand)
+// Enhanced with file attachment support
 // ============================================
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Message, ChatSession, AgentRole } from '@/lib/types';
+import type { Message, ChatSession, AgentRole, AttachedFile } from '@/lib/types';
 import { AGENT_DEFINITIONS } from '@/lib/types';
 
 function generateId(): string {
@@ -27,35 +28,44 @@ interface ChatStore {
   // Sessions
   sessions: ChatSession[];
   activeSessionId: string | null;
-  
+
   // UI State
   sidebarOpen: boolean;
   selectedAgent: AgentRole;
   isGenerating: boolean;
   modelStatus: 'loading' | 'ready' | 'error';
   modelMessage: string;
-  
+
+  // File Attachments
+  attachedFiles: AttachedFile[];
+
   // Actions - Sessions
   createSession: (title?: string) => ChatSession;
   deleteSession: (id: string) => void;
   setActiveSession: (id: string) => void;
   renameSession: (id: string, title: string) => void;
-  
+
   // Actions - Messages
-  addUserMessage: (content: string) => void;
+  addUserMessage: (content: string, files?: AttachedFile[]) => void;
   addAssistantMessage: (content: string, agentId?: string, agentName?: string, agentColor?: string, agentRole?: AgentRole) => void;
   updateLastMessage: (content: string) => void;
   setLastMessageComplete: () => void;
   setLastMessageAgent: (agentId: string, agentName: string, agentColor: string, agentRole: AgentRole) => void;
   addThinkingToLastMessage: (content: string) => void;
-  
+
+  // Actions - Files
+  addFile: (file: AttachedFile) => void;
+  addFiles: (files: AttachedFile[]) => void;
+  removeFile: (id: string) => void;
+  clearFiles: () => void;
+
   // Actions - UI
   toggleSidebar: () => void;
   setSelectedAgent: (role: AgentRole) => void;
   setIsGenerating: (value: boolean) => void;
   setModelStatus: (status: 'loading' | 'ready' | 'error', message: string) => void;
   clearSessions: () => void;
-  
+
   // Computed
   activeSession: () => ChatSession | null;
   activeMessages: () => Message[];
@@ -71,12 +81,14 @@ export const useChatStore = create<ChatStore>()(
       isGenerating: false,
       modelStatus: 'loading',
       modelMessage: 'Đang kiểm tra model...',
+      attachedFiles: [],
 
       createSession: (title) => {
         const session = createNewSession(title);
         set((state) => ({
           sessions: [session, ...state.sessions],
           activeSessionId: session.id,
+          attachedFiles: [],
         }));
         return session;
       },
@@ -94,7 +106,7 @@ export const useChatStore = create<ChatStore>()(
         });
       },
 
-      setActiveSession: (id) => set({ activeSessionId: id }),
+      setActiveSession: (id) => set({ activeSessionId: id, attachedFiles: [] }),
 
       renameSession: (id, title) => {
         set((state) => ({
@@ -104,7 +116,7 @@ export const useChatStore = create<ChatStore>()(
         }));
       },
 
-      addUserMessage: (content) => {
+      addUserMessage: (content, files) => {
         const state = get();
         let sessionId = state.activeSessionId;
 
@@ -123,6 +135,7 @@ export const useChatStore = create<ChatStore>()(
           role: 'user',
           content,
           timestamp: Date.now(),
+          attachedFiles: files || undefined,
         };
 
         set((state) => ({
@@ -249,17 +262,42 @@ export const useChatStore = create<ChatStore>()(
         }));
       },
 
+      // File actions
+      addFile: (file) => {
+        set((state) => {
+          if (state.attachedFiles.length >= 10) return state;
+          return { attachedFiles: [...state.attachedFiles, file] };
+        });
+      },
+
+      addFiles: (files) => {
+        set((state) => {
+          const remaining = 10 - state.attachedFiles.length;
+          if (remaining <= 0) return state;
+          const newFiles = files.slice(0, remaining);
+          return { attachedFiles: [...state.attachedFiles, ...newFiles] };
+        });
+      },
+
+      removeFile: (id) => {
+        set((state) => ({
+          attachedFiles: state.attachedFiles.filter((f) => f.id !== id),
+        }));
+      },
+
+      clearFiles: () => set({ attachedFiles: [] }),
+
       toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
-      
+
       setSelectedAgent: (role) => set({ selectedAgent: role }),
-      
+
       setIsGenerating: (value) => set({ isGenerating: value }),
-      
+
       setModelStatus: (status, message) => set({ modelStatus: status, modelMessage: message }),
 
       clearSessions: () => {
         const newSession = createNewSession('Xin chào! 👋');
-        set({ sessions: [newSession], activeSessionId: newSession.id });
+        set({ sessions: [newSession], activeSessionId: newSession.id, attachedFiles: [] });
       },
 
       activeSession: () => {
