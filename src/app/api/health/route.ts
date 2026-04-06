@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Health Check API
+// VenAI - Health Check API
 // ============================================
 
 import { getOllamaClient } from '@/lib/ollama';

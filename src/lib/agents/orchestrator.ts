@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Multi-Agent Orchestrator
+// VenAI - Multi-Agent Orchestrator
 // Enhanced with chain-of-thought, auto-chain mode,
 // sandbox tool use, and Lens (analyzer) agent
 // Powered by Gemma 4
@@ -191,7 +191,8 @@ function buildMessages(
   systemPrompt: string,
   history: Message[],
   currentUserMessage: string,
-  fileContext?: string
+  fileContext?: string,
+  toolContext?: string
 ): OllamaMessage[] {
   const messages: OllamaMessage[] = [];
 
@@ -206,6 +207,10 @@ function buildMessages(
 
   if (fileContext) {
     enhancedSystemPrompt += '\n\n--- NGỮ CẢNH TỪ FILE ĐÍNH KÈM ---\n' + fileContext + '\n--- KẾT THÚC NGỮ CẢNH FILE ---';
+  }
+
+  if (toolContext) {
+    enhancedSystemPrompt += '\n\n' + toolContext;
   }
 
   messages.push({ role: 'system', content: enhancedSystemPrompt });
@@ -263,7 +268,8 @@ export async function* processMessage(
   userMessage: string,
   conversationHistory: Message[],
   activeAgentOverride?: AgentRole,
-  attachedFiles?: Array<{ name: string; content: string }>
+  attachedFiles?: Array<{ name: string; content: string }>,
+  toolContext?: string
 ): AsyncGenerator<StreamChunk> {
   const { role: selectedRole, confidence } = classifyIntent(userMessage);
   const activeRole = activeAgentOverride || selectedRole;
@@ -303,7 +309,7 @@ export async function* processMessage(
   }
 
   const systemPrompt = effectiveAgent.systemPrompt;
-  const messages = buildMessages(systemPrompt, conversationHistory, userMessage, fileContext);
+  const messages = buildMessages(systemPrompt, conversationHistory, userMessage, fileContext, toolContext);
 
   yield* generateResponse(effectiveAgent, messages);
 }
@@ -407,13 +413,9 @@ export async function* processMessageWithTools(
   attachedFiles?: Array<{ name: string; content: string }>,
   sessionId?: string,
 ): AsyncGenerator<StreamChunk> {
-  // Add sandbox awareness to the agent's system prompt
-  const sandboxNote = sessionId
-    ? '\n\nSandbox Tools Available:\n'
-      + '- Khi cần tạo file, dùng code block: ```file:path/to/file.ts\ncontent\n```\n'
-      + '- Khi cần chạy lệnh, dùng code block: ```terminal\ncommand\n```\n'
-      + '- Mỗi chat session có workspace riêng tại /tmp/sandbox/{sessionId}\n'
-      + '- Bạn có thể tạo, đọc, sửa file và chạy terminal commands'
+  // Build tool context for the system prompt
+  const toolContext = sessionId
+    ? `\n📌 SESSION INFO: Session ID = ${sessionId.substring(0, 8)}. Mỗi session có workspace riêng.\nBạn có thể tạo file (\`\`\`file:path\`), chạy lệnh (\`\`\`terminal\`), và quản lý workspace.`
     : '';
 
   // If we have a sessionId, enhance the user message with sandbox context
@@ -424,7 +426,7 @@ export async function* processMessageWithTools(
 
   // Run the normal processMessage pipeline
   let fullResponse = '';
-  const generator = processMessage(enhancedMessage, conversationHistory, activeAgentOverride, attachedFiles);
+  const generator = processMessage(enhancedMessage, conversationHistory, activeAgentOverride, attachedFiles, toolContext);
 
   for await (const chunk of generator) {
     yield chunk;

@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Terminal API Route
+// VenAI - Terminal API Route
 // Allows AI to execute commands and users to view output
 // ============================================
 

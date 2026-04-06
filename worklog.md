@@ -227,3 +227,48 @@ Add per-chat sandbox workspace with isolated storage, terminal, file editor, dra
 - `npm run build` compiled successfully - all routes including `/api/sandbox/[sessionId]`
 - Dev server running normally on port 3000
 - No files modified: deploy.yml, globals.css, WebGLBackground.tsx, store/chat-store.ts, lib/types.ts, lib/ollama.ts
+
+---
+## Task ID: 10 - rename-and-fixes
+### Work Task
+Rename NovaMind AI → VenAI across all files, fix header z-index, and fix AI tool awareness.
+
+### Work Summary
+
+**1. FIX: Header not showing (z-index issue):**
+- File: `src/components/chat/ChatInterface.tsx`
+- Added `relative` class to GlassHeader `<header>` element so `z-30` class takes effect
+- Before: `className="shrink-0 backdrop-blur-2xl bg-white/[0.03] border-b border-white/[0.06] z-30"`
+- After: `className="shrink-0 relative backdrop-blur-2xl bg-white/[0.03] border-b border-white/[0.06] z-30"`
+
+**2. RENAME: NovaMind AI → VenAI across all files:**
+- `src/components/chat/ChatInterface.tsx`: Comment header, h1, h2, WelcomeScreen, description, footer
+- `src/lib/types.ts`: Comment header, all 6 agent system prompts (NovaMind AI → VenAI), kept agent name "Nova" as-is
+- `src/store/chat-store.ts`: Comment header, localStorage key `novamind-chat-store` → `venai-chat-store`
+- `src/app/layout.tsx`: title, description, keywords, authors, appleWebApp.title
+- `public/manifest.json`: name, short_name, description
+- `src/lib/agents/orchestrator.ts`: Comment header
+- `src/app/api/chat/route.ts`: Comment header
+- Additional files with comment-only changes: ollama.ts, fileManager.ts, files/route.ts, terminal/route.ts, debug/route.ts, health/route.ts, sandbox/route.ts, WebGLBackground.tsx
+
+**3. FIX: AI doesn't know about tools (tool awareness):**
+- Added comprehensive tool awareness section to ALL 6 agent system prompts in `src/lib/types.ts` with instructions for:
+  - Terminal/Command Execution (```terminal blocks)
+  - File Operations (```file:path blocks)
+  - Workspace/Sandbox awareness
+  - File Analysis
+  - Web Search
+  - IMPORTANT directive to always use tools proactively
+- Updated `buildMessages()` in `src/lib/agents/orchestrator.ts`:
+  - Added `toolContext?: string` parameter
+  - Appends toolContext to system prompt when provided
+- Updated `processMessage()` signature to accept `toolContext?: string` and pass through to `buildMessages()`
+- Updated `processMessageWithTools()`:
+  - Removed dead `sandboxNote` variable (was defined but never used)
+  - Now constructs `toolContext` with session info and passes it through `processMessage` → `buildMessages`
+
+**4. Build Verification:**
+- `npm run lint` passed with zero warnings
+- `npm run build` (npx next build) compiled successfully
+- All 10 routes verified: /, /_not-found, /api, /api/chat, /api/debug, /api/files, /api/health, /api/sandbox/[sessionId], /api/terminal, /api/test
+- Dev server running normally on port 3000

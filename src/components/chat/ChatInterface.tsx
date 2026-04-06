@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================
-// NovaMind AI - Main Chat Interface
+// VenAI - Main Chat Interface
 // Futuristic Glassmorphism Design
 // WebGL Background • 6 Agents • Gemma 4
 // Per-Chat Sandbox • File Drag & Drop
@@ -163,7 +163,7 @@ function GlassHeader({
   const cfg = statusConfig[modelStatus];
 
   return (
-    <header className="shrink-0 backdrop-blur-2xl bg-white/[0.03] border-b border-white/[0.06] z-30">
+    <header className="shrink-0 relative backdrop-blur-2xl bg-white/[0.03] border-b border-white/[0.06] z-30">
       <div className="flex items-center justify-between px-3 py-2" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
         {/* Left: hamburger + logo + title */}
         <div className="flex items-center gap-2.5 min-w-0">
@@ -179,7 +179,7 @@ function GlassHeader({
               <Zap size={18} className="text-white" />
             </div>
             <div className="hidden sm:block min-w-0">
-              <h1 className="font-bold text-sm leading-tight gradient-text">NovaMind AI</h1>
+              <h1 className="font-bold text-sm leading-tight gradient-text">VenAI</h1>
               <p className="text-[10px] text-white/40 font-medium">Gemma 4 • Sandbox</p>
             </div>
           </div>
@@ -494,7 +494,7 @@ function Sidebar({
                   <Zap size={18} className="text-white" />
                 </div>
                 <div>
-                  <h2 className="font-bold text-sm text-white/90">NovaMind AI</h2>
+                  <h2 className="font-bold text-sm text-white/90">VenAI</h2>
                   <p className="text-[10px] text-white/40 font-medium">Multi-Agent • Sandbox</p>
                 </div>
               </div>
@@ -1283,7 +1283,7 @@ function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (text: string
         transition={{ delay: 0.2, duration: 0.5 }}
         className="text-2xl sm:text-3xl font-bold mb-2.5 gradient-text"
       >
-        Xin chào! Tôi là NovaMind
+        Xin chào! Tôi là VenAI
       </motion.h2>
 
       <motion.p
@@ -1292,7 +1292,7 @@ function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (text: string
         transition={{ delay: 0.3, duration: 0.5 }}
         className="text-sm text-white/45 max-w-md mb-8 leading-relaxed"
       >
-        AI Multi-Agent với 6 chuyên gia thông minh và Sandbox workspace cho mỗi phiên chat. Sẵn sàng hỗ trợ bạn.
+        VenAI - AI Multi-Agent với 6 chuyên gia thông minh và Sandbox workspace cho mỗi phiên chat. Sẵn sàng hỗ trợ bạn.
       </motion.p>
 
       {/* Suggestion cards */}
@@ -1760,7 +1760,7 @@ export default function ChatInterface() {
           </div>
 
           <p className="text-center text-[10px] text-white/20 mt-1.5 hidden sm:block">
-            NovaMind AI • Sandbox • Gemma 4 • Mỗi session có workspace riêng
+            VenAI • Sandbox • Gemma 4 • Mỗi session có workspace riêng
           </p>
         </div>
       </div>

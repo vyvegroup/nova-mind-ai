@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Files API Route
+// VenAI - Files API Route
 // POST: Upload files | GET: List files | DELETE: Remove files
 // ============================================
 

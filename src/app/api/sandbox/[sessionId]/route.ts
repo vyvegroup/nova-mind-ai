@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Per-Session Sandbox API
+// VenAI - Per-Session Sandbox API
 // Isolated workspace per chat session
 // ============================================
 

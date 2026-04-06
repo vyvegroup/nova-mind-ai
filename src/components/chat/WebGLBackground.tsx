@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 
 // ============================================
-// NovaMind AI - WebGL 2.0 Animated Background
+// VenAI - WebGL 2.0 Animated Background
 // Soft, floating, dark gradient mesh with
 // drifting light orbs. GLSL ES 3.0 shaders.
 // ============================================

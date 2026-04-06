@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Chat Store (Zustand)
+// VenAI - Chat Store (Zustand)
 // Enhanced with file attachment support
 // ============================================
 
@@ -312,7 +312,7 @@ export const useChatStore = create<ChatStore>()(
       },
     }),
     {
-      name: 'novamind-chat-store',
+      name: 'venai-chat-store',
       partialize: (state) => ({
         sessions: state.sessions,
         activeSessionId: state.activeSessionId,

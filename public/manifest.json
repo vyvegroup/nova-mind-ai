@@ -1,7 +1,7 @@
 {
-  "name": "NovaMind AI",
-  "short_name": "NovaMind",
-  "description": "Multi-Agent Live AI System - Powered by Gemma 4",
+  "name": "VenAI",
+  "short_name": "VenAI",
+  "description": "Multi-Agent Live AI System - VenAI - Powered by Gemma 4",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0b",

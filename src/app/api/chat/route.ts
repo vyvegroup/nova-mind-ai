@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Chat API Route (Streaming SSE)
+// VenAI - Chat API Route (Streaming SSE)
 // Enhanced with file context & sandbox tool support
 // ============================================
 

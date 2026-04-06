@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Ollama Client Library
+// VenAI - Ollama Client Library
 // ============================================
 
 import { OllamaChatOptions, OllamaResponse, OllamaMessage } from './types';

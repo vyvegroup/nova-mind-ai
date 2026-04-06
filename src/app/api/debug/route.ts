@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - Direct Ollama Debug Endpoint
+// VenAI - Direct Ollama Debug Endpoint
 // ============================================
 
 import { NextResponse } from 'next/server';

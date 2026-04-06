@@ -13,10 +13,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NovaMind AI - Multi-Agent Live",
-  description: "AI Multi-Agent hệ thống live tự chủ với giao diện big-tech. Chạy Gemma 4 locally qua Ollama, deploy bằng GitHub Actions + Cloudflare Tunnel.",
-  keywords: ["NovaMind", "AI", "Multi-Agent", "Gemma 4", "Ollama", "Local AI", "Chat", "Vietnamese AI"],
-  authors: [{ name: "NovaMind" }],
+  title: "VenAI - Multi-Agent Live",
+  description: "VenAI - AI Multi-Agent hệ thống live tự chủ với giao diện big-tech. Chạy Gemma 4 locally qua Ollama, deploy bằng GitHub Actions + Cloudflare Tunnel.",
+  keywords: ["VenAI", "AI", "Multi-Agent", "Gemma 4", "Ollama", "Local AI", "Chat", "Vietnamese AI"],
+  authors: [{ name: "VenAI" }],
   icons: {
     icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>",
     apple: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>",
@@ -25,7 +25,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NovaMind AI",
+    title: "VenAI",
   },
   other: {
     "mobile-web-app-capable": "yes",

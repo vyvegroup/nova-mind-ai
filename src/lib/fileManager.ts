@@ -1,5 +1,5 @@
 // ============================================
-// NovaMind AI - File Manager Library
+// VenAI - File Manager Library
 // Handle file operations: save, read, list, delete
 // ============================================
 
