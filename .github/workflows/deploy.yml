@@ -160,32 +160,13 @@ jobs:
           echo "  🌐 URL: $TUNNEL_URL"
           echo "============================================"
 
-      - name: 📡 Publish URL (Push to repo)
+      - name: 📡 Publish URL (Upload artifact)
         if: success()
-        env:
-          TUNNEL_URL: ${{ steps.tunnel.outputs.url }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git checkout --orphan tunnel-info
-          echo "$TUNNEL_URL" > tunnel-url.txt
-          echo "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > tunnel-timestamp.txt
-          git add tunnel-url.txt tunnel-timestamp.txt
-          git commit -m "live: $TUNNEL_URL"
-          git push origin tunnel-info --force 2>&1 || echo "Push failed (GITHUB_TOKEN may lack write access)"
-
-          git checkout main
-
-          echo "## 🚀 NovaMind AI is LIVE!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 👉 [$TUNNEL_URL]($TUNNEL_URL)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Next.js | ✅ Running |" >> $GITHUB_STEP_SUMMARY
-          echo "| Ollama | ✅ ${{ env.OLLAMA_MODEL }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tunnel | ✅ $TUNNEL_URL |" >> $GITHUB_STEP_SUMMARY
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-url
+          path: /tmp/tunnel_url.txt
+          retention-days: 1
 
       - name: 💓 Keep Alive
         timeout-minutes: 350
