@@ -1,0 +1,12 @@
+---
+Task ID: 1
+Agent: Main Agent
+Task: Rename to VenAI, fix header, add AI tool awareness
+
+Work Log:
+- Renamed NovaMind AI to VenAI in 15+ files
+- Fixed header z-index bug (added relative positioning)
+- Added tool awareness to all 6 agent system prompts
+- Fixed dead sandboxNote code in orchestrator
+- Build verified, pushed to GitHub
+
