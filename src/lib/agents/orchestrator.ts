@@ -154,9 +154,11 @@ export async function* processMessage(
     const stream = ollama.chatStream(messages);
 
     let fullContent = '';
+    let tokenCount = 0;
     for await (const chunk of stream) {
       if (chunk.response) {
         fullContent += chunk.response;
+        tokenCount++;
         yield {
           type: 'token',
           content: chunk.response,
@@ -168,12 +170,46 @@ export async function* processMessage(
       }
     }
 
-    yield {
-      type: 'done',
-      content: fullContent,
-      agentId: agent.id,
-      agentName: agent.name,
-    };
+    // If no tokens received, try non-streaming as fallback
+    if (fullContent.trim().length === 0) {
+      console.log('[Orchestrator] Streaming returned empty, trying non-streaming fallback...');
+      yield {
+        type: 'thinking',
+        content: 'Đang thử phương thức khác...',
+        agentId: agent.id,
+        agentName: agent.name,
+      };
+
+      const fallbackResponse = await ollama.chat(messages, {
+        options: { temperature: 0.7, num_predict: 1024 },
+      });
+      fullContent = fallbackResponse.response || '';
+      
+      if (fullContent.trim().length > 0) {
+        yield {
+          type: 'token',
+          content: fullContent,
+          agentId: agent.id,
+          agentName: agent.name,
+          agentColor: agent.color,
+          agentRole: agent.role,
+        };
+      }
+    }
+
+    if (fullContent.trim().length === 0) {
+      yield {
+        type: 'error',
+        error: 'Model không tạo được nội dung. Có thể do thiếu RAM. Thử reload trang hoặc đổi model nhỏ hơn (gemma3:1b).',
+      };
+    } else {
+      yield {
+        type: 'done',
+        content: fullContent,
+        agentId: agent.id,
+        agentName: agent.name,
+      };
+    }
   } catch (error) {
     yield {
       type: 'error',

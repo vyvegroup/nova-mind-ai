@@ -5,8 +5,8 @@
 import { OllamaChatOptions, OllamaResponse, OllamaMessage } from './types';
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'gemma3:4b';
-const DEFAULT_TIMEOUT = 300000; // 5 minutes
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'gemma3:1b';
+const DEFAULT_TIMEOUT = 600000; // 10 minutes for constrained environments
 
 class OllamaClient {
   private baseUrl: string;
@@ -40,14 +40,14 @@ class OllamaClient {
         status: true,
         model: this.model,
         available: modelAvailable,
-        message: modelAvailable ? `Model ${this.model} sẵn sàng` : `Model ${this.model} chưa được tải. Vui lòng chạy: ollama pull ${this.model}`,
+        message: modelAvailable ? `Model ${this.model} sẵn sàng` : `Model ${this.model} chưa được tải.`,
       };
     } catch (error) {
       return {
         status: false,
         model: this.model,
         available: false,
-        message: `Không thể kết nối Ollama tại ${this.baseUrl}. Đảm bảo Ollama đang chạy.`,
+        message: `Không thể kết nối Ollama tại ${this.baseUrl}`,
       };
     }
   }
@@ -62,7 +62,7 @@ class OllamaClient {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: model, stream: false }),
-        signal: AbortSignal.timeout(600000), // 10 min timeout for download
+        signal: AbortSignal.timeout(600000),
       });
 
       if (!response.ok) {
@@ -70,7 +70,7 @@ class OllamaClient {
         return { success: false, message: `Lỗi tải model: ${err}` };
       }
 
-      return { success: true, message: `Đã tải model ${model} thành công` };
+      return { success: true, message: `Đã tải model ${model}` };
     } catch (error) {
       return { success: false, message: `Lỗi kết nối: ${error}` };
     }
@@ -84,6 +84,7 @@ class OllamaClient {
       model: options?.model || this.model,
       messages,
       stream: false,
+      keep_alive: '10m',
       options: {
         temperature: 0.7,
         top_p: 0.9,
@@ -92,6 +93,8 @@ class OllamaClient {
         ...options?.options,
       },
     };
+
+    console.log(`[Ollama] Chat request: model=${opts.model}, messages=${messages.length}`);
 
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
@@ -102,6 +105,7 @@ class OllamaClient {
 
     if (!response.ok) {
       const err = await response.text();
+      console.error(`[Ollama] Chat error ${response.status}: ${err}`);
       throw new Error(`Ollama chat error: ${err}`);
     }
 
@@ -120,14 +124,17 @@ class OllamaClient {
       model: options?.model || this.model,
       messages,
       stream: true,
+      keep_alive: '10m',
       options: {
         temperature: 0.7,
         top_p: 0.9,
-        num_predict: 4096,
+        num_predict: 2048,
         repeat_penalty: 1.1,
         ...options?.options,
       },
     };
+
+    console.log(`[Ollama] Stream request: model=${opts.model}, messages=${messages.length}`);
 
     const response = await fetch(`${this.baseUrl}/api/chat`, {
       method: 'POST',
@@ -138,6 +145,7 @@ class OllamaClient {
 
     if (!response.ok) {
       const err = await response.text();
+      console.error(`[Ollama] Stream error ${response.status}: ${err}`);
       throw new Error(`Ollama stream error: ${err}`);
     }
 
@@ -146,6 +154,7 @@ class OllamaClient {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let chunkCount = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -159,14 +168,20 @@ class OllamaClient {
         if (line.trim()) {
           try {
             const chunk: OllamaResponse = JSON.parse(line);
+            chunkCount++;
+            if (chunkCount <= 3 || chunkCount % 50 === 0) {
+              console.log(`[Ollama] Chunk #${chunkCount}: done=${chunk.done}, response_len=${(chunk.response || '').length}`);
+            }
             yield chunk;
             if (chunk.done) return;
-          } catch {
-            // Skip malformed JSON lines
+          } catch (parseErr) {
+            console.error(`[Ollama] JSON parse error on line: ${line.substring(0, 100)}`);
           }
         }
       }
     }
+
+    console.log(`[Ollama] Stream ended: ${chunkCount} chunks received`);
   }
 
   /**

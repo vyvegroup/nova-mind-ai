@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
           controller.close();
         } catch (error) {
+          console.error('[Chat API] Stream error:', error);
           const errorChunk = {
             type: 'error',
             error: `Stream error: ${error instanceof Error ? error.message : 'Unknown'}`,
@@ -55,6 +56,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    console.error('[Chat API] Server error:', error);
     return new Response(
       JSON.stringify({ error: `Server error: ${error instanceof Error ? error.message : 'Unknown'}` }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }
