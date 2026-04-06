@@ -163,7 +163,7 @@ function GlassHeader({
   const cfg = statusConfig[modelStatus];
 
   return (
-    <header className="shrink-0 relative backdrop-blur-2xl border-b border-white/[0.08] z-30" style={{ backgroundColor: 'rgba(10, 10, 14, 0.85)' }}>
+    <header className="shrink-0 sticky top-0 relative backdrop-blur-2xl border-b border-white/[0.08] z-30" style={{ backgroundColor: 'rgba(10, 10, 14, 0.85)' }}>
       <div className="flex items-center justify-between px-3 py-2" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
         {/* Left: hamburger + logo + title */}
         <div className="flex items-center gap-2.5 min-w-0">
@@ -1624,7 +1624,7 @@ export default function ChatInterface() {
   };
 
   return (
-    <div className="relative flex flex-col h-screen bg-black text-white overflow-hidden">
+    <div className="relative flex flex-col bg-black text-white overflow-hidden" style={{ height: '100dvh', maxHeight: '100vh' }}>
       {/* WebGL Background */}
       <WebGLBackground />
 

@@ -267,6 +267,35 @@ function detectToolPatterns(fullResponse: string): Array<{
     }
   }
 
+  // Pattern 3: Detect shell commands like $ command or shell> command
+  const shellCmdRegex = /(?:^|\n)(?:\$|shell>|>\s?)(.+)/gm;
+  while ((match = shellCmdRegex.exec(fullResponse)) !== null) {
+    const command = match[1].trim();
+    // Skip if this is inside a code block already detected
+    const beforeMatch = fullResponse.substring(0, match.index);
+    const openBackticks = (beforeMatch.match(/```/g) || []).length;
+    if (openBackticks % 2 === 0 && command.length > 0 && command.length < 500) {
+      tools.push({
+        id: `tool-${Date.now()}-${toolIndex++}`,
+        toolName: 'exec_command',
+        args: { command },
+      });
+    }
+  }
+
+  // Pattern 4: Detect explicit [TOOL: ...] or [EXEC: ...] or [RUN: ...] markers
+  const explicitToolRegex = /\[(?:TOOL|EXEC|RUN|CMD):\s*([^\]]+)\]/gi;
+  while ((match = explicitToolRegex.exec(fullResponse)) !== null) {
+    const command = match[1].trim();
+    if (command.length > 0) {
+      tools.push({
+        id: `tool-${Date.now()}-${toolIndex++}`,
+        toolName: 'exec_command',
+        args: { command },
+      });
+    }
+  }
+
   return tools;
 }
 
@@ -279,6 +308,10 @@ function cleanToolBlocksFromResponse(fullResponse: string): string {
   cleaned = cleaned.replace(/```file:.+?\n[\s\S]*?```/g, '');
   // Remove ```terminal\n...\n``` and ```bash\n...\n``` blocks
   cleaned = cleaned.replace(/```(?:terminal|bash)\n[\s\S]*?```/g, '');
+  // Remove $ command lines (shell execution markers)
+  cleaned = cleaned.replace(/(?:^|\n)(?:\$|shell>|>\s?).+/gm, '');
+  // Remove [TOOL: ...] / [EXEC: ...] / [RUN: ...] markers
+  cleaned = cleaned.replace(/\[(?:TOOL|EXEC|RUN|CMD):\s*[^\]]+\]/gi, '');
   // Clean up extra whitespace
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
   return cleaned;
@@ -401,13 +434,19 @@ export async function* processMessageWithTools(
       `🛠️ TOOLS THỰC THI TRỰC TIẾP (TỰ ĐỘNG executed):\n` +
       `1. TẠO FILE → Viết code block: \`\`\`file:tên_file.ts\n// code ở đây\n\`\`\`\n` +
       `2. CHẠY LỆNH TERMINAL → Viết: \`\`\`terminal\nlệnh ở đây\n\`\`\`\n` +
-      `3. ĐỌC FILE → Viết: \`\`\`terminal\ncat đường_dẫn_file\n\`\`\`\n\n` +
+      `3. ĐỌC FILE → Viết: \`\`\`terminal\ncat đường_dẫn_file\n\`\`\`\n` +
+      `4. CHẠY LỆNH NHANH → Viết: $ lệnh (trên 1 dòng)\n\n` +
       `⚠️ QUAN TRỌNG - HÀNH ĐỘNG THỰC TẾ:\n` +
       `- Khi bạn viết \`\`\`file:...\`\`\` hoặc \`\`\`terminal\`\`\`, nó SẼ ĐƯỢC THỰC THI NGAY!\n` +
       `- Sau khi thực thi, bạn sẽ NHẬN KẾT QUẢ và có thể tiếp tục hành động.\n` +
       `- Đừng chỉ mô tả - hãy THỰC THI rồi báo cáo kết quả!\n` +
       `- Nếu lệnh thất bại, thử cách khác. Đừng bỏ cuộc.\n` +
-      `- Giới hạn: tối đa ${MAX_AGENT_LOOPS} vòng lặp hành động.`
+      `- Giới hạn: tối đa ${MAX_AGENT_LOOPS} vòng lặp hành động.\n\n` +
+      `📋 VÍ DỤ CÁCH DÙNG TOOLS:\n` +
+      `Để tạo file: \`\`\`file:hello.js\nconsole.log("Hello!");\n\`\`\`\n` +
+      `Để chạy lệnh: \`\`\`terminal\nnode hello.js\n\`\`\`\n` +
+      `Để cài package: \`\`\`terminal\nnpm install express\n\`\`\`\n` +
+      `Để xem file: \`\`\`terminal\ncat hello.js\n\`\`\``
     : '';
 
   // Switch to agent
