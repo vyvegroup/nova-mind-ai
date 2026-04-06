@@ -5,7 +5,7 @@
 import { OllamaChatOptions, OllamaResponse, OllamaMessage } from './types';
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'gemma4:e4b';
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'gemma3:4b';
 const DEFAULT_TIMEOUT = 600000; // 10 minutes for constrained environments
 
 class OllamaClient {
