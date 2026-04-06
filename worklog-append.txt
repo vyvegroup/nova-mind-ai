@@ -1,12 +1,20 @@
 ---
 Task ID: 1
 Agent: Main Agent
-Task: Rename to VenAI, fix header, add AI tool awareness
+Task: Fix header pushed off-screen on mobile + improve agent loop reliability
 
 Work Log:
-- Renamed NovaMind AI to VenAI in 15+ files
-- Fixed header z-index bug (added relative positioning)
-- Added tool awareness to all 6 agent system prompts
-- Fixed dead sandboxNote code in orchestrator
-- Build verified, pushed to GitHub
+- Diagnosed header bug: body had safe-area padding (padding-top: env(safe-area-inset-top)) causing content to overflow. Combined with h-screen (100vh) being larger than visible viewport on mobile Chrome, the header got pushed off-screen after load.
+- Removed body safe-area padding from globals.css (components already handle it via paddingTop: max(8px, env(safe-area-inset-top)) on the header itself)
+- Added position: fixed, width: 100%, top: 0, left: 0 to html,body to prevent any scrolling pushing content
+- Changed main container from h-screen class to inline style with height: 100dvh, maxHeight: 100vh for proper mobile viewport handling
+- Added sticky top-0 to header element for extra safety
+- Expanded agent loop tool detection patterns: added shell $ command detection, [TOOL:]/[EXEC:]/[RUN:]/[CMD:] marker detection
+- Added tool usage examples in system prompt context to help gemma3:4b produce correct tool format
+- Enhanced cleanToolBlocksFromResponse to remove all new tool marker patterns
+- Pushed to GitHub: commit 0dd301c
 
+Stage Summary:
+- Header bug fixed via 3-layer approach: removed body padding, fixed body position, sticky header
+- Agent loop improved with 4 pattern detection methods (file blocks, terminal blocks, $ commands, [EXEC:] markers)
+- Tool context enhanced with concrete examples for small model guidance
