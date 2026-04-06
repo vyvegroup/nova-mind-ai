@@ -37,7 +37,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#8B5CF6",
+  themeColor: "#171717",
 };
 
 export default function RootLayout({
@@ -54,8 +54,8 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="format-detection" content="telephone=no" />
         <meta name="format-detection" content="email=no" />
-        <meta name="theme-color" content="#8B5CF6" />
-        <meta name="msapplication-TileColor" content="#8B5CF6" />
+        <meta name="theme-color" content="#171717" />
+        <meta name="msapplication-TileColor" content="#171717" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0a0b] text-foreground`}
