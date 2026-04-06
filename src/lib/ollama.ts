@@ -109,7 +109,13 @@ class OllamaClient {
       throw new Error(`Ollama chat error: ${err}`);
     }
 
-    return response.json();
+    const data = await response.json();
+    // Ollama /api/chat returns { message: { role, content }, done, ... }
+    // Normalize to always have .response field
+    if (data.message && data.message.content) {
+      data.response = data.message.content;
+    }
+    return data;
   }
 
   /**
@@ -168,6 +174,11 @@ class OllamaClient {
         if (line.trim()) {
           try {
             const chunk: OllamaResponse = JSON.parse(line);
+            // Ollama /api/chat streaming returns { message: { role, content }, done }
+            // Normalize: map message.content to response for compatibility
+            if (chunk.message && chunk.message.content) {
+              chunk.response = chunk.message.content;
+            }
             chunkCount++;
             if (chunkCount <= 3 || chunkCount % 50 === 0) {
               console.log(`[Ollama] Chunk #${chunkCount}: done=${chunk.done}, response_len=${(chunk.response || '').length}`);
