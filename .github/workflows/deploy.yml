@@ -104,40 +104,45 @@ jobs:
 
       - name: 🔗 Start Cloudflare Quick Tunnel (FREE)
         run: |
-          # Install cloudflared
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared
-          chmod +x /usr/local/bin/cloudflared
+          # Install cloudflared to user directory (no sudo needed)
+          mkdir -p "$HOME/bin"
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O "$HOME/bin/cloudflared"
+          chmod +x "$HOME/bin/cloudflared"
+          export PATH="$HOME/bin:$PATH"
           cloudflared --version
 
           # Start quick tunnel - FREE, no login needed
-          cloudflared tunnel --url http://localhost:3000 2>&1 | tee /tmp/tunnel.log &
+          # Output goes to stderr, capture both streams
+          cloudflared tunnel --url http://localhost:3000 > /tmp/tunnel.log 2>&1 &
 
           # Wait for tunnel URL
           echo "⏳ Waiting for Cloudflare tunnel URL..."
           TUNNEL_URL=""
-          for i in $(seq 1 60); do
-            TUNNEL_URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
+          for i in $(seq 1 90); do
+            sleep 2
+            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
             if [ -n "$TUNNEL_URL" ]; then
               echo "✅ Tunnel URL found: $TUNNEL_URL"
               break
             fi
-            echo "Waiting for tunnel... ($i/60)"
-            sleep 2
+            echo "Waiting for tunnel... ($i/90)"
           done
 
           if [ -z "$TUNNEL_URL" ]; then
             echo "❌ Failed to get tunnel URL"
+            echo "--- Tunnel log ---"
             cat /tmp/tunnel.log
-          else
-            # Save URL to file for next step
-            echo "$TUNNEL_URL" > /tmp/tunnel_url.txt
-            echo ""
-            echo "============================================"
-            echo "  🚀 NovaMind AI is LIVE!"
-            echo "  🌐 URL: $TUNNEL_URL"
-            echo "  🤖 Model: ${{ env.OLLAMA_MODEL }}"
-            echo "============================================"
+            echo "--- End log ---"
+            exit 1
           fi
+
+          echo "$TUNNEL_URL" > /tmp/tunnel_url.txt
+          echo ""
+          echo "============================================"
+          echo "  🚀 NovaMind AI is LIVE!"
+          echo "  🌐 URL: $TUNNEL_URL"
+          echo "  🤖 Model: ${{ env.OLLAMA_MODEL }}"
+          echo "============================================"
 
       - name: 📢 Output Tunnel URL
         run: |
