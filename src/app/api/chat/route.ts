@@ -1,21 +1,22 @@
 // ============================================
 // NovaMind AI - Chat API Route (Streaming SSE)
-// Enhanced with file context support
+// Enhanced with file context & sandbox tool support
 // ============================================
 
 import { NextRequest } from 'next/server';
-import { processMessage } from '@/lib/agents/orchestrator';
+import { processMessage, processMessageWithTools } from '@/lib/agents/orchestrator';
 import { getOllamaClient } from '@/lib/ollama';
 import type { AgentRole, Message } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message, history, agentOverride, files } = body as {
+    const { message, history, agentOverride, files, sessionId } = body as {
       message: string;
       history: Message[];
       agentOverride?: AgentRole;
       files?: Array<{ name: string; content: string }>;
+      sessionId?: string;
     };
 
     if (!message || typeof message !== 'string') {
@@ -29,7 +30,10 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          const generator = processMessage(message, history || [], agentOverride, files);
+          // Use processMessageWithTools if sessionId is provided
+          const generator = sessionId
+            ? processMessageWithTools(message, history || [], agentOverride, files, sessionId)
+            : processMessage(message, history || [], agentOverride, files);
 
           for await (const chunk of generator) {
             const data = `data: ${JSON.stringify(chunk)}\n\n`;

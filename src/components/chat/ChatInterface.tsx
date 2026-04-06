@@ -4,6 +4,7 @@
 // NovaMind AI - Main Chat Interface
 // Futuristic Glassmorphism Design
 // WebGL Background • 6 Agents • Gemma 4
+// Per-Chat Sandbox • File Drag & Drop
 // ============================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -13,7 +14,9 @@ import {
   Brain, Code, BookOpen, ListChecks, Search,
   Sparkles, Settings, Moon, Sun, Menu, X, Zap,
   Paperclip, Terminal as TerminalIcon, HardDrive,
-  FileText, FileCode, FileJson, Eye, Minimize2, RefreshCw, Folder
+  FileText, FileCode, FileJson, Eye, Minimize2, RefreshCw, Folder,
+  Upload, Download, Save, Wrench, Copy, Check, PanelRight,
+  FilePlus, ArrowUpCircle, Info, Cpu, Database
 } from 'lucide-react';
 import { useChatStore } from '@/store/chat-store';
 import { AGENT_DEFINITIONS, type AgentRole, type Message, type StreamChunk, type AttachedFile } from '@/lib/types';
@@ -28,19 +31,19 @@ function generateFileId(): string {
   return `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
-function getFileIcon(filename: string) {
+function getFileIcon(filename: string, size = 14) {
   const ext = filename.split('.').pop()?.toLowerCase() || '';
   const iconMap: Record<string, React.ReactNode> = {
-    ts: <FileCode size={14} />, tsx: <FileCode size={14} />,
-    js: <FileCode size={14} />, jsx: <FileCode size={14} />,
-    py: <FileCode size={14} />, json: <FileJson size={14} />,
-    md: <FileText size={14} />, txt: <FileText size={14} />,
-    css: <FileCode size={14} />, html: <FileCode size={14} />,
-    sql: <FileCode size={14} />, sh: <FileCode size={14} />,
-    yaml: <FileText size={14} />, yml: <FileText size={14} />,
-    csv: <FileText size={14} />, prisma: <FileCode size={14} />,
+    ts: <FileCode size={size} />, tsx: <FileCode size={size} />,
+    js: <FileCode size={size} />, jsx: <FileCode size={size} />,
+    py: <FileCode size={size} />, json: <FileJson size={size} />,
+    md: <FileText size={size} />, txt: <FileText size={size} />,
+    css: <FileCode size={size} />, html: <FileCode size={size} />,
+    sql: <FileCode size={size} />, sh: <FileCode size={size} />,
+    yaml: <FileText size={size} />, yml: <FileText size={size} />,
+    csv: <FileText size={size} />, prisma: <FileCode size={size} />,
   };
-  return iconMap[ext] || <FileText size={14} />;
+  return iconMap[ext] || <FileText size={size} />;
 }
 
 function getFileColor(filename: string): string {
@@ -54,6 +57,61 @@ function getFileColor(filename: string): string {
     sql: 'text-cyan-400', sh: 'text-red-400',
   };
   return colorMap[ext] || 'text-gray-400';
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// =============================================
+// CodeBlock with Copy Button
+// =============================================
+function CodeBlock({ children, className, filename }: { children: React.ReactNode; className?: string; filename?: string }) {
+  const [copied, setCopied] = useState(false);
+  const isMultiLine = typeof children === 'string' && children.includes('\n');
+
+  const handleCopy = async () => {
+    const text = typeof children === 'string' ? children : String(children);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback
+    }
+  };
+
+  if (!isMultiLine && !filename) {
+    return (
+      <code className={`${className || ''} bg-white/[0.06] px-1.5 py-0.5 rounded-md text-[13px]`}>
+        {children}
+      </code>
+    );
+  }
+
+  return (
+    <div className="relative group my-2 rounded-xl overflow-hidden border border-white/[0.06]">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-white/[0.04] border-b border-white/[0.06]">
+        <span className="text-[11px] text-white/40 font-medium">
+          {filename || (className?.replace('language-', '') || 'code')}
+        </span>
+        <button
+          onClick={handleCopy}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-all opacity-0 group-hover:opacity-100"
+          style={{ touchAction: 'manipulation', minHeight: '28px' }}
+        >
+          {copied ? <><Check size={11} /> Copied</> : <><Copy size={11} /> Copy</>}
+        </button>
+      </div>
+      {/* Content */}
+      <pre className="p-3 overflow-x-auto bg-black/30 text-[13px] leading-relaxed">
+        <code className={className}>{children}</code>
+      </pre>
+    </div>
+  );
 }
 
 // =============================================
@@ -84,15 +142,13 @@ function AgentIcon({ role, size = 20, color }: { role: AgentRole; size?: number;
 // =============================================
 function GlassHeader({
   onMenuClick,
-  onTerminalToggle,
-  onStorageToggle,
+  onWorkspaceToggle,
   onNewChat,
   isDark,
   onThemeToggle,
 }: {
   onMenuClick: () => void;
-  onTerminalToggle: () => void;
-  onStorageToggle: () => void;
+  onWorkspaceToggle: () => void;
   onNewChat: () => void;
   isDark: boolean;
   onThemeToggle: () => void;
@@ -124,7 +180,7 @@ function GlassHeader({
             </div>
             <div className="hidden sm:block min-w-0">
               <h1 className="font-bold text-sm leading-tight gradient-text">NovaMind AI</h1>
-              <p className="text-[10px] text-white/40 font-medium">Gemma 4</p>
+              <p className="text-[10px] text-white/40 font-medium">Gemma 4 • Sandbox</p>
             </div>
           </div>
         </div>
@@ -138,20 +194,12 @@ function GlassHeader({
         {/* Right: action buttons */}
         <div className="flex items-center gap-1">
           <button
-            onClick={onTerminalToggle}
+            onClick={onWorkspaceToggle}
             className="p-2.5 rounded-xl hover:bg-white/[0.06] transition-all active:scale-95"
             style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
-            title="Terminal"
+            title="Workspace"
           >
-            <TerminalIcon size={18} className="text-white/60" />
-          </button>
-          <button
-            onClick={onStorageToggle}
-            className="p-2.5 rounded-xl hover:bg-white/[0.06] transition-all active:scale-95 hidden sm:flex"
-            style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
-            title="Storage"
-          >
-            <HardDrive size={18} className="text-white/60" />
+            <PanelRight size={18} className="text-white/60" />
           </button>
           <button
             onClick={onNewChat}
@@ -179,6 +227,35 @@ function GlassHeader({
 // =============================================
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
+
+  // Enhanced markdown with code block copy button
+  const markdownComponents = {
+    code({ className, children, ...props }: { className?: string; children?: React.ReactNode; [key: string]: unknown }) {
+      // Extract filename from className like "language-typescript:path/to/file.ts"
+      let language = '';
+      let filename = '';
+      if (className) {
+        const langMatch = className.match(/language-(\w+)(?::(.+))?/);
+        if (langMatch) {
+          language = langMatch[1];
+          filename = langMatch[2] || '';
+        }
+      }
+      const isBlock = typeof children === 'string' && children.includes('\n');
+      if (isBlock || filename) {
+        return (
+          <CodeBlock className={className} filename={filename || language}>
+            {children}
+          </CodeBlock>
+        );
+      }
+      return (
+        <code className={`${className || ''} bg-white/[0.06] px-1.5 py-0.5 rounded-md text-[13px]`} {...props}>
+          {children}
+        </code>
+      );
+    },
+  };
 
   return (
     <motion.div
@@ -251,6 +328,21 @@ function MessageBubble({ message }: { message: Message }) {
           </motion.div>
         )}
 
+        {/* Tool calls section */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="mb-2 space-y-1.5">
+            {message.toolCalls.map((tc) => (
+              <div key={tc.id} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04] text-[11px]">
+                <Wrench size={11} className="text-violet-400 shrink-0" />
+                <span className="text-white/50 truncate">{tc.name}: {JSON.stringify(tc.arguments).substring(0, 80)}</span>
+                {tc.result && (
+                  <span className="text-emerald-400/70 truncate max-w-[150px]">→ {tc.result.substring(0, 60)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Message content */}
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed transition-colors duration-200 ${
@@ -263,7 +355,7 @@ function MessageBubble({ message }: { message: Message }) {
             <p className="whitespace-pre-wrap break-words">{message.content}</p>
           ) : (
             <div className="prose prose-sm dark:prose-invert max-w-none break-words prose-p:my-1 prose-pre:my-2 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                 {message.content}
               </ReactMarkdown>
               {message.isStreaming && (
@@ -379,7 +471,6 @@ function Sidebar({
     <AnimatePresence>
       {isOpen && (
         <>
-          {/* Backdrop blur overlay */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -389,7 +480,6 @@ function Sidebar({
             onClick={onClose}
           />
 
-          {/* Sidebar panel */}
           <motion.div
             initial={{ x: -320 }}
             animate={{ x: 0 }}
@@ -405,7 +495,7 @@ function Sidebar({
                 </div>
                 <div>
                   <h2 className="font-bold text-sm text-white/90">NovaMind AI</h2>
-                  <p className="text-[10px] text-white/40 font-medium">Multi-Agent • Gemma 4</p>
+                  <p className="text-[10px] text-white/40 font-medium">Multi-Agent • Sandbox</p>
                 </div>
               </div>
               <button
@@ -444,6 +534,7 @@ function Sidebar({
                 >
                   <MessageSquare size={14} className="text-white/30 shrink-0" />
                   <span className="text-sm truncate flex-1 text-white/70">{session.title}</span>
+                  <span className="text-[10px] text-white/20 shrink-0">{session.messages.length}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -477,193 +568,352 @@ function Sidebar({
 }
 
 // =============================================
-// TerminalPanel - Slide-up Terminal
+// Unified WorkspacePanel
 // =============================================
-function TerminalPanel({
-  isOpen,
+interface SandboxFile {
+  name: string;
+  type: 'file' | 'directory';
+  size: number;
+  modified: string;
+  path: string;
+}
+
+interface SystemInfo {
+  platform: string;
+  arch: string;
+  hostname: string;
+  nodeVersion: string;
+  totalMemory: number;
+  freeMemory: number;
+  sandboxSize: number;
+  sandboxPath: string;
+  totalFiles: number;
+  totalDirs: number;
+}
+
+function FileEditor({
+  file,
+  sessionId,
   onClose,
 }: {
-  isOpen: boolean;
+  file: SandboxFile;
+  sessionId: string;
   onClose: () => void;
 }) {
-  const [history, setHistory] = useState<Array<{ type: string; text: string }>>([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const terminalEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
-  // Auto-scroll
   useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [history]);
-
-  // Focus input when opened
-  useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 300);
+    async function loadFile() {
+      try {
+        const res = await fetch(`/api/sandbox/${sessionId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'read', path: file.path }),
+        });
+        const data = await res.json();
+        setContent(data.content || '');
+      } catch {
+        setContent('Error loading file');
+      } finally {
+        setLoading(false);
+      }
     }
-  }, [isOpen]);
+    loadFile();
+  }, [file.path, sessionId]);
 
-  const executeCommand = useCallback(async (cmd: string) => {
-    if (!cmd.trim() || loading) return;
-    const trimmed = cmd.trim();
-
-    setHistory(prev => [...prev, { type: 'command', text: trimmed }]);
-    setInput('');
-    setLoading(true);
-
+  const handleSave = async () => {
+    setSaving(true);
     try {
-      const res = await fetch('/api/terminal', {
+      await fetch(`/api/sandbox/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: trimmed }),
+        body: JSON.stringify({ action: 'write', path: file.path, content }),
       });
-      const data = await res.json();
-      const output = data.output || data.result || JSON.stringify(data, null, 2);
-      setHistory(prev => [...prev, { type: 'output', text: output }]);
-    } catch (err) {
-      setHistory(prev => [...prev, { type: 'error', text: `Error: ${err instanceof Error ? err.message : 'Unknown'}` }]);
+      setDirty(false);
+    } catch {
+      // error
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
-  }, [loading]);
+  };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      executeCommand(input);
-    }
+  const handleDownload = () => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ y: '100%' }}
-          animate={{ y: 0 }}
-          exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-          className="fixed inset-x-0 bottom-0 z-40 flex flex-col backdrop-blur-2xl bg-black/50 border-t border-white/[0.08] rounded-t-3xl"
-          style={{ height: 'min(50dvh, 480px)' }}
-        >
-          {/* Terminal header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
-            <div className="flex items-center gap-2">
-              <TerminalIcon size={16} className="text-emerald-400" />
-              <span className="text-sm font-medium text-white/80">Terminal</span>
-            </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-xl hover:bg-white/[0.06] transition-all active:scale-95 text-white/50 hover:text-white/80"
-              style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
-            >
-              <Minimize2 size={16} />
-            </button>
-          </div>
+    <div className="flex flex-col h-full">
+      {/* Editor header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.06] shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={getFileColor(file.name)}>{getFileIcon(file.name, 14)}</span>
+          <span className="text-sm text-white/80 truncate">{file.path}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={handleDownload} className="p-2 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition-all active:scale-90" style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}>
+            <Download size={14} />
+          </button>
+          <button onClick={handleSave} disabled={saving || !dirty} className="p-2 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-emerald-400 transition-all active:scale-90 disabled:opacity-30" style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}>
+            <Save size={14} />
+          </button>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition-all active:scale-90" style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}>
+            <X size={14} />
+          </button>
+        </div>
+      </div>
 
-          {/* Terminal output */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 panel-scroll">
-            {history.length === 0 && (
-              <div className="flex items-center gap-2 text-white/25 text-xs terminal-text">
-                <span className="text-emerald-400/60">&gt;</span>
-                <span>Type a command to get started...</span>
-              </div>
-            )}
-            {history.map((entry, i) => (
-              <div key={i} className="mb-1.5 terminal-text">
-                {entry.type === 'command' && (
-                  <div className="text-emerald-400/80">
-                    <span className="text-emerald-400 mr-2">&gt;</span>
-                    <span>{entry.text}</span>
-                  </div>
-                )}
-                {entry.type === 'output' && (
-                  <pre className="text-white/70 whitespace-pre-wrap break-all">{entry.text}</pre>
-                )}
-                {entry.type === 'error' && (
-                  <pre className="text-red-400/80 whitespace-pre-wrap break-all">{entry.text}</pre>
-                )}
-              </div>
-            ))}
-            {loading && (
-              <div className="flex items-center gap-2 text-white/40 text-xs terminal-text">
-                <div className="w-3 h-3 border border-emerald-400/50 border-t-emerald-400 rounded-full animate-spin" />
-                <span>Executing...</span>
-              </div>
-            )}
-            <div ref={terminalEndRef} />
+      {/* Editor body */}
+      <div className="flex-1 min-h-0">
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="w-5 h-5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
           </div>
+        ) : (
+          <textarea
+            value={content}
+            onChange={(e) => { setContent(e.target.value); setDirty(true); }}
+            className="w-full h-full bg-transparent text-sm text-white/80 p-3 resize-none outline-none font-mono leading-relaxed"
+            style={{ touchAction: 'manipulation', fontSize: '13px' }}
+            spellCheck={false}
+          />
+        )}
+      </div>
 
-          {/* Terminal input */}
-          <div className="shrink-0 px-4 py-3 border-t border-white/[0.06]" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom))' }}>
-            <div className="flex items-center gap-2 rounded-xl bg-black/40 border border-white/[0.06] px-3 py-2.5">
-              <span className="text-emerald-400/70 terminal-text shrink-0">&gt;</span>
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Enter command..."
-                rows={1}
-                className="flex-1 bg-transparent resize-none outline-none text-sm text-white/80 placeholder:text-white/20 terminal-text"
-                style={{ touchAction: 'manipulation', fontSize: '13px' }}
-              />
-              <button
-                onClick={() => executeCommand(input)}
-                disabled={!input.trim() || loading}
-                className="shrink-0 p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 disabled:opacity-30 transition-all active:scale-90"
-                style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}
-              >
-                <Send size={14} />
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+      {/* Editor footer */}
+      <div className="flex items-center justify-between px-3 py-2 border-t border-white/[0.06] text-[10px] text-white/30">
+        <span>{content.length} chars</span>
+        {dirty && <span className="text-amber-400">Unsaved changes</span>}
+      </div>
+    </div>
   );
 }
 
-// =============================================
-// StoragePanel - Slide-in File Browser
-// =============================================
-function StoragePanel({
+function WorkspacePanel({
   isOpen,
   onClose,
+  sessionId,
 }: {
   isOpen: boolean;
   onClose: () => void;
+  sessionId: string;
 }) {
-  const [storageData, setStorageData] = useState<{ storage: Array<{ name: string; size: number; modified: string; isDir: boolean }>; systemInfo: string } | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'files' | 'terminal' | 'system'>('files');
+  const [files, setFiles] = useState<SandboxFile[]>([]);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [editingFile, setEditingFile] = useState<SandboxFile | null>(null);
 
-  const fetchStorage = useCallback(async () => {
-    setLoading(true);
+  // Terminal state
+  const [terminalHistory, setTerminalHistory] = useState<Array<{ type: string; text: string }>>([]);
+  const [terminalInput, setTerminalInput] = useState('');
+  const [terminalLoading, setTerminalLoading] = useState(false);
+  const [cmdHistory, setCmdHistory] = useState<string[]>([]);
+  const [cmdHistoryIdx, setCmdHistoryIdx] = useState(-1);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const terminalInputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Upload ref
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  // Drag state
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  const fetchSandboxData = useCallback(async () => {
+    setLoadingFiles(true);
     try {
-      const res = await fetch('/api/terminal');
+      const res = await fetch(`/api/sandbox/${sessionId}`);
       const data = await res.json();
-      setStorageData({
-        storage: data.storage || data.files || [],
-        systemInfo: data.systemInfo || data.info || '',
-      });
+      setFiles(data.files || []);
+      setSystemInfo(data.systemInfo || null);
     } catch {
-      setStorageData({ storage: [], systemInfo: 'Unable to fetch storage info' });
+      // ignore
     } finally {
-      setLoading(false);
+      setLoadingFiles(false);
     }
-  }, []);
+  }, [sessionId]);
 
+  // Load data when opened
   useEffect(() => {
-    if (isOpen && !storageData) {
-      fetchStorage();
+    if (isOpen) {
+      fetchSandboxData();
+      setEditingFile(null);
     }
-  }, [isOpen, storageData, fetchStorage]);
+  }, [isOpen, fetchSandboxData]);
 
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  // Terminal auto-scroll
+  useEffect(() => {
+    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [terminalHistory]);
+
+  // Focus terminal when switching to terminal tab
+  useEffect(() => {
+    if (activeTab === 'terminal' && isOpen) {
+      setTimeout(() => terminalInputRef.current?.focus(), 100);
+    }
+  }, [activeTab, isOpen]);
+
+  // Execute command in sandbox
+  const executeCommand = useCallback(async (cmd: string) => {
+    if (!cmd.trim() || terminalLoading) return;
+    const trimmed = cmd.trim();
+
+    setTerminalHistory(prev => [...prev, { type: 'command', text: trimmed }]);
+    setTerminalInput('');
+    setCmdHistory(prev => [...prev, trimmed]);
+    setCmdHistoryIdx(-1);
+    setTerminalLoading(true);
+
+    try {
+      const res = await fetch(`/api/sandbox/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'exec', command: trimmed }),
+      });
+      const data = await res.json();
+      const output = data.output || data.result || JSON.stringify(data, null, 2);
+      setTerminalHistory(prev => [...prev, { type: 'output', text: output }]);
+    } catch (err) {
+      setTerminalHistory(prev => [...prev, { type: 'error', text: `Error: ${err instanceof Error ? err.message : 'Unknown'}` }]);
+    } finally {
+      setTerminalLoading(false);
+      fetchSandboxData();
+    }
+  }, [terminalLoading, sessionId, fetchSandboxData]);
+
+  const handleTerminalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      executeCommand(terminalInput);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (cmdHistory.length > 0) {
+        const newIdx = cmdHistoryIdx === -1 ? cmdHistory.length - 1 : Math.max(0, cmdHistoryIdx - 1);
+        setCmdHistoryIdx(newIdx);
+        setTerminalInput(cmdHistory[newIdx]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (cmdHistoryIdx >= 0) {
+        const newIdx = cmdHistoryIdx + 1;
+        if (newIdx >= cmdHistory.length) {
+          setCmdHistoryIdx(-1);
+          setTerminalInput('');
+        } else {
+          setCmdHistoryIdx(newIdx);
+          setTerminalInput(cmdHistory[newIdx]);
+        }
+      }
+    }
   };
+
+  // Upload file to sandbox
+  const handleUpload = useCallback(async (file: File, subPath?: string) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (subPath) formData.append('path', subPath);
+
+      const res = await fetch(`/api/sandbox/${sessionId}`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchSandboxData();
+      }
+    } catch {
+      // error
+    }
+  }, [sessionId, fetchSandboxData]);
+
+  const handleFileInput = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList) return;
+    for (const file of Array.from(fileList)) {
+      await handleUpload(file);
+    }
+    if (uploadInputRef.current) uploadInputRef.current.value = '';
+  }, [handleUpload]);
+
+  // New file creation
+  const handleNewFile = useCallback(async () => {
+    const name = prompt('File name:');
+    if (!name) return;
+    try {
+      await fetch(`/api/sandbox/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'write', path: name, content: '' }),
+      });
+      fetchSandboxData();
+    } catch {
+      // error
+    }
+  }, [sessionId, fetchSandboxData]);
+
+  // Delete file
+  const handleDeleteFile = useCallback(async (filePath: string) => {
+    if (!confirm(`Delete "${filePath}"?`)) return;
+    try {
+      await fetch(`/api/sandbox/${sessionId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', path: filePath }),
+      });
+      fetchSandboxData();
+      if (editingFile?.path === filePath) setEditingFile(null);
+    } catch {
+      // error
+    }
+  }, [sessionId, fetchSandboxData, editingFile]);
+
+  // Clear sandbox
+  const handleClearSandbox = useCallback(async () => {
+    if (!confirm('Clear all sandbox files?')) return;
+    try {
+      await fetch(`/api/sandbox/${sessionId}`, { method: 'DELETE' });
+      fetchSandboxData();
+      setEditingFile(null);
+      setTerminalHistory([]);
+    } catch {
+      // error
+    }
+  }, [sessionId, fetchSandboxData]);
+
+  // Drop handler
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    droppedFiles.forEach(f => handleUpload(f));
+  }, [handleUpload]);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const tabs = [
+    { key: 'files' as const, label: 'Files', icon: <Folder size={14} /> },
+    { key: 'terminal' as const, label: 'Terminal', icon: <TerminalIcon size={14} /> },
+    { key: 'system' as const, label: 'System', icon: <Info size={14} /> },
+  ];
 
   return (
     <AnimatePresence>
@@ -684,21 +934,25 @@ function StoragePanel({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 28, stiffness: 220 }}
-            className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-80 backdrop-blur-2xl bg-black/40 border-l border-white/[0.08] flex flex-col"
+            className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-[420px] backdrop-blur-2xl bg-black/40 border-l border-white/[0.08] flex flex-col"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06] shrink-0">
               <div className="flex items-center gap-2">
-                <HardDrive size={16} className="text-violet-400" />
-                <span className="text-sm font-medium text-white/80">Storage</span>
+                <Wrench size={16} className="text-violet-400" />
+                <span className="text-sm font-medium text-white/80">Workspace</span>
+                <span className="text-[10px] text-white/30 font-mono">{sessionId.substring(0, 8)}</span>
               </div>
               <div className="flex items-center gap-1">
                 <button
-                  onClick={fetchStorage}
+                  onClick={fetchSandboxData}
                   className="p-2 rounded-xl hover:bg-white/[0.06] transition-all active:scale-95 text-white/40 hover:text-white/70"
                   style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
                 >
-                  <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+                  <RefreshCw size={16} className={loadingFiles ? 'animate-spin' : ''} />
                 </button>
                 <button
                   onClick={onClose}
@@ -710,44 +964,283 @@ function StoragePanel({
               </div>
             </div>
 
-            {/* System info */}
-            {storageData?.systemInfo && (
-              <div className="px-4 py-3 border-b border-white/[0.04]">
-                <p className="text-[11px] text-white/40 terminal-text leading-relaxed">{storageData.systemInfo}</p>
-              </div>
-            )}
-
-            {/* File list */}
-            <div className="flex-1 overflow-y-auto p-3 panel-scroll">
-              {loading && !storageData && (
-                <div className="flex items-center justify-center py-12">
-                  <div className="w-5 h-5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
-                </div>
-              )}
-              {storageData && storageData.storage.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-white/30">
-                  <Folder size={32} className="mb-3 opacity-40" />
-                  <p className="text-sm">No files found</p>
-                </div>
-              )}
-              {storageData?.storage.map((file, i) => (
-                <div
-                  key={`${file.name}-${i}`}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-all duration-200 mb-0.5 group"
+            {/* Tab bar */}
+            <div className="flex border-b border-white/[0.06] shrink-0">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-all border-b-2 ${
+                    activeTab === tab.key
+                      ? 'text-violet-400 border-violet-400'
+                      : 'text-white/40 border-transparent hover:text-white/60'
+                  }`}
                   style={{ touchAction: 'manipulation', minHeight: '44px' }}
                 >
-                  <div className={`${file.isDir ? 'text-violet-400/70' : getFileColor(file.name)}`}>
-                    {file.isDir ? <Folder size={16} /> : getFileIcon(file.name)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white/70 truncate">{file.name}</p>
-                    <p className="text-[10px] text-white/30">
-                      {file.isDir ? 'Directory' : formatSize(file.size)}
-                      {file.modified && ` • ${file.modified}`}
-                    </p>
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="flex-1 min-h-0 flex flex-col relative">
+              {/* Drag overlay */}
+              {isDragOver && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-violet-500/10 border-2 border-dashed border-violet-400/40 rounded-lg m-2 pointer-events-none">
+                  <div className="text-center">
+                    <Upload size={32} className="mx-auto mb-2 text-violet-400" />
+                    <p className="text-sm text-violet-400">Drop files to upload</p>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* FILES TAB */}
+              {activeTab === 'files' && !editingFile && (
+                <div className="flex flex-col h-full">
+                  {/* File actions bar */}
+                  <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.04] shrink-0">
+                    <button
+                      onClick={handleNewFile}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all active:scale-95"
+                      style={{ touchAction: 'manipulation', minHeight: '32px' }}
+                    >
+                      <FilePlus size={13} />
+                      <span>New File</span>
+                    </button>
+                    <button
+                      onClick={() => uploadInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-white/50 hover:text-white/80 hover:bg-white/[0.06] transition-all active:scale-95"
+                      style={{ touchAction: 'manipulation', minHeight: '32px' }}
+                    >
+                      <Upload size={13} />
+                      <span>Upload</span>
+                    </button>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={handleFileInput}
+                    />
+                    {files.length > 0 && (
+                      <button
+                        onClick={handleClearSandbox}
+                        className="ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] text-red-400/60 hover:text-red-400 hover:bg-red-500/10 transition-all active:scale-95"
+                        style={{ touchAction: 'manipulation', minHeight: '32px' }}
+                      >
+                        <Trash2 size={13} />
+                        <span>Clear</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* File list */}
+                  <div className="flex-1 overflow-y-auto panel-scroll">
+                    {loadingFiles && files.length === 0 && (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="w-5 h-5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
+                      </div>
+                    )}
+                    {files.length === 0 && !loadingFiles && (
+                      <div className="flex flex-col items-center justify-center py-12 text-white/30 px-4">
+                        <Folder size={32} className="mb-3 opacity-40" />
+                        <p className="text-sm mb-1">No files yet</p>
+                        <p className="text-[11px] text-white/20">Create a file or drag & drop files here</p>
+                      </div>
+                    )}
+                    {files.map((file, i) => (
+                      <div
+                        key={`${file.path}-${i}`}
+                        className="group flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] transition-all duration-200 cursor-pointer"
+                        style={{ touchAction: 'manipulation', minHeight: '44px' }}
+                        onClick={() => file.type === 'file' && setEditingFile(file)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          if (file.type === 'file') {
+                            if (confirm(`Delete "${file.path}"?`)) handleDeleteFile(file.path);
+                          }
+                        }}
+                      >
+                        <div className={`${file.type === 'directory' ? 'text-violet-400/70' : getFileColor(file.name)} shrink-0`}>
+                          {file.type === 'directory' ? <Folder size={16} /> : getFileIcon(file.name, 16)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white/70 truncate">{file.name}</p>
+                          <p className="text-[10px] text-white/30">
+                            {file.type === 'directory' ? 'Directory' : formatSize(file.size)}
+                            {' • '}
+                            {new Date(file.modified).toLocaleString('vi-VN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        {file.type === 'file' && (
+                          <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setEditingFile(file); }}
+                              className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/30 hover:text-white/60 transition-all"
+                              style={{ minHeight: '28px', minWidth: '28px', touchAction: 'manipulation' }}
+                            >
+                              <Eye size={12} />
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteFile(file.path); }}
+                              className="p-1.5 rounded-lg hover:bg-red-500/15 text-white/30 hover:text-red-400 transition-all"
+                              style={{ minHeight: '28px', minWidth: '28px', touchAction: 'manipulation' }}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* FILE EDITOR */}
+              {activeTab === 'files' && editingFile && (
+                <div className="h-full">
+                  <FileEditor
+                    file={editingFile}
+                    sessionId={sessionId}
+                    onClose={() => { setEditingFile(null); fetchSandboxData(); }}
+                  />
+                </div>
+              )}
+
+              {/* TERMINAL TAB */}
+              {activeTab === 'terminal' && (
+                <div className="flex flex-col h-full">
+                  <div className="flex-1 overflow-y-auto px-3 py-3 panel-scroll">
+                    {terminalHistory.length === 0 && (
+                      <div className="flex items-center gap-2 text-white/25 text-xs terminal-text">
+                        <span className="text-emerald-400/60">&gt;</span>
+                        <span>Sandbox terminal ready...</span>
+                      </div>
+                    )}
+                    {terminalHistory.map((entry, i) => (
+                      <div key={i} className="mb-1.5 terminal-text">
+                        {entry.type === 'command' && (
+                          <div className="text-emerald-400/80">
+                            <span className="text-emerald-400 mr-2">$</span>
+                            <span>{entry.text}</span>
+                          </div>
+                        )}
+                        {entry.type === 'output' && (
+                          <pre className="text-white/70 whitespace-pre-wrap break-all text-[13px]">{entry.text}</pre>
+                        )}
+                        {entry.type === 'error' && (
+                          <pre className="text-red-400/80 whitespace-pre-wrap break-all text-[13px]">{entry.text}</pre>
+                        )}
+                      </div>
+                    ))}
+                    {terminalLoading && (
+                      <div className="flex items-center gap-2 text-white/40 text-xs terminal-text">
+                        <div className="w-3 h-3 border border-emerald-400/50 border-t-emerald-400 rounded-full animate-spin" />
+                        <span>Executing...</span>
+                      </div>
+                    )}
+                    <div ref={terminalEndRef} />
+                  </div>
+
+                  <div className="shrink-0 px-3 py-2 border-t border-white/[0.06]" style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}>
+                    <div className="flex items-center gap-2 rounded-xl bg-black/40 border border-white/[0.06] px-3 py-2">
+                      <span className="text-emerald-400/70 terminal-text shrink-0">$</span>
+                      <textarea
+                        ref={terminalInputRef}
+                        value={terminalInput}
+                        onChange={(e) => setTerminalInput(e.target.value)}
+                        onKeyDown={handleTerminalKeyDown}
+                        placeholder="Enter command..."
+                        rows={1}
+                        className="flex-1 bg-transparent resize-none outline-none text-sm text-white/80 placeholder:text-white/20 terminal-text"
+                        style={{ touchAction: 'manipulation', fontSize: '13px' }}
+                      />
+                      <button
+                        onClick={() => executeCommand(terminalInput)}
+                        disabled={!terminalInput.trim() || terminalLoading}
+                        className="shrink-0 p-1.5 rounded-lg hover:bg-white/[0.06] text-white/40 hover:text-white/70 disabled:opacity-30 transition-all active:scale-90"
+                        style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}
+                      >
+                        <Send size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SYSTEM TAB */}
+              {activeTab === 'system' && (
+                <div className="flex-1 overflow-y-auto p-4 panel-scroll">
+                  {systemInfo ? (
+                    <div className="space-y-3">
+                      <div className="px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                        <div className="flex items-center gap-2 text-[11px] text-white/40 mb-2">
+                          <Cpu size={12} />
+                          <span className="font-medium uppercase tracking-wider">System</span>
+                        </div>
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-white/50">Platform</span>
+                            <span className="text-white/70 font-mono">{systemInfo.platform} {systemInfo.arch}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/50">Node.js</span>
+                            <span className="text-white/70 font-mono">{systemInfo.nodeVersion}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/50">Memory</span>
+                            <span className="text-white/70 font-mono">{formatSize(systemInfo.freeMemory)} / {formatSize(systemInfo.totalMemory)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                        <div className="flex items-center gap-2 text-[11px] text-white/40 mb-2">
+                          <Database size={12} />
+                          <span className="font-medium uppercase tracking-wider">Sandbox</span>
+                        </div>
+                        <div className="space-y-1.5 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-white/50">Path</span>
+                            <span className="text-white/70 font-mono text-[10px] truncate max-w-[200px]" title={systemInfo.sandboxPath}>{systemInfo.sandboxPath}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/50">Files</span>
+                            <span className="text-white/70 font-mono">{systemInfo.totalFiles} files, {systemInfo.totalDirs} dirs</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-white/50">Size</span>
+                            <span className="text-white/70 font-mono">{formatSize(systemInfo.sandboxSize)} / 50 MB</span>
+                          </div>
+                          {/* Size bar */}
+                          <div className="mt-2">
+                            <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all bg-gradient-to-r from-violet-500 to-purple-500"
+                                style={{ width: `${Math.min(100, (systemInfo.sandboxSize / (50 * 1024 * 1024)) * 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleClearSandbox}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs text-red-400/60 hover:text-red-400 border border-red-500/10 hover:bg-red-500/10 transition-all active:scale-[0.98]"
+                        style={{ touchAction: 'manipulation', minHeight: '44px' }}
+                      >
+                        <Trash2 size={14} />
+                        Clear All Sandbox Data
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center py-12">
+                      <div className="w-5 h-5 border-2 border-violet-400/30 border-t-violet-400 rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </motion.div>
         </>
@@ -766,7 +1259,7 @@ function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (text: string
     { text: 'Lập kế hoạch học web development', icon: <ListChecks size={16} />, role: 'planner' },
     { text: 'Giải thích machine learning đơn giản', icon: <Brain size={16} />, role: 'orchestrator' },
     { text: 'Review code best practices', icon: <Search size={16} />, role: 'reviewer' },
-    { text: 'Phân tích cấu trúc dữ liệu JSON', icon: <Eye size={16} />, role: 'analyzer' },
+    { text: 'Tạo file và chạy lệnh trong sandbox', icon: <Wrench size={16} />, role: 'coder' },
   ];
 
   return (
@@ -799,7 +1292,7 @@ function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (text: string
         transition={{ delay: 0.3, duration: 0.5 }}
         className="text-sm text-white/45 max-w-md mb-8 leading-relaxed"
       >
-        AI Multi-Agent với 6 chuyên gia thông minh: Nova, CodeX, Athena, Stratos, Critique và Lens. Sẵn sàng hỗ trợ bạn.
+        AI Multi-Agent với 6 chuyên gia thông minh và Sandbox workspace cho mỗi phiên chat. Sẵn sàng hỗ trợ bạn.
       </motion.p>
 
       {/* Suggestion cards */}
@@ -855,12 +1348,13 @@ function FileChip({ file, onRemove }: { file: AttachedFile; onRemove: () => void
 export default function ChatInterface() {
   const [input, setInput] = useState('');
   const [isDark, setIsDark] = useState(true);
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [storageOpen, setStorageOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
   const {
     sidebarOpen,
@@ -944,18 +1438,16 @@ export default function ChatInterface() {
     }
   }, []);
 
-  // Handle file selection
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-
+  // Upload files to sandbox and add to chat
+  const uploadFilesToSandbox = useCallback(async (files: File[]) => {
+    if (!session?.id) return;
     for (const file of Array.from(files)) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert(`File "${file.name}" quá lớn. Tối đa 5MB mỗi file.`);
+      if (file.size > 10 * 1024 * 1024) {
+        alert(`File "${file.name}" quá lớn. Max 10MB.`);
         continue;
       }
-
       try {
+        // Try reading as text first
         const content = await file.text();
         addFile({
           id: generateFileId(),
@@ -965,14 +1457,50 @@ export default function ChatInterface() {
           type: file.type || 'text/plain',
         });
       } catch {
-        alert(`Không thể đọc file "${file.name}". Chỉ hỗ trợ file text.`);
+        addFile({
+          id: generateFileId(),
+          name: file.name,
+          content: `[Binary file: ${file.name}]`,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+        });
       }
     }
+  }, [session?.id, addFile]);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+  // Drag & drop on chat area
+  const handleChatDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      uploadFilesToSandbox(files);
     }
-  }, [addFile]);
+  }, [uploadFilesToSandbox]);
+
+  const handleChatDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleChatDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Only set dragging false if leaving the container
+    if (chatContainerRef.current && !chatContainerRef.current.contains(e.relatedTarget as Node)) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  // Handle file selection from input
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    await uploadFilesToSandbox(Array.from(files));
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [uploadFilesToSandbox]);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -995,14 +1523,13 @@ export default function ChatInterface() {
           history: messages.filter((m) => m.id !== messages[messages.length - 1]?.id).slice(-20),
           agentOverride: selectedAgent,
           files: messageFiles?.map((f) => ({ name: f.name, content: f.content })),
+          sessionId: session?.id,
         }),
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok || !res.body) throw new Error('Failed to connect');
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
+      const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
@@ -1015,9 +1542,15 @@ export default function ChatInterface() {
         buffer = lines.pop() || '';
 
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6).trim();
-          if (data === '[DONE]') continue;
+          const trimmedLine = line.trim();
+          if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+          const data = trimmedLine.slice(6);
+          if (data === '[DONE]') {
+            setLastMessageComplete();
+            setIsGenerating(false);
+            continue;
+          }
 
           try {
             const chunk: StreamChunk = JSON.parse(data);
@@ -1025,33 +1558,57 @@ export default function ChatInterface() {
             switch (chunk.type) {
               case 'agent_switch':
                 if (chunk.agentId && chunk.agentName && chunk.agentColor && chunk.agentRole) {
-                  setLastMessageAgent(chunk.agentId, chunk.agentName, chunk.agentColor, chunk.agentRole);
+                  setLastMessageAgent(chunk.agentId, chunk.agentName, chunk.agentColor, chunk.agentRole as AgentRole);
                 }
+                break;
+              case 'thinking':
+                if (chunk.content) {
+                  addThinkingToLastMessage(chunk.content);
+                }
+                break;
+              case 'token':
+                if (chunk.content) {
+                  updateLastMessage(chunk.content);
+                }
+                break;
+              case 'tool_call':
+                if (chunk.content) {
+                  addThinkingToLastMessage(`🔧 Tool Call: ${chunk.content}`);
+                }
+                break;
+              case 'tool_result':
+                if (chunk.content) {
+                  addThinkingToLastMessage(`✅ Tool Result: ${chunk.content}`);
+                }
+                break;
+              case 'error':
+                if (chunk.error) {
+                  updateLastMessage(`\n\n❌ ${chunk.error}`);
+                }
+                break;
+              case 'done':
                 break;
               case 'chain_start':
               case 'chain_step':
-                if (chunk.content) addThinkingToLastMessage(chunk.content);
-                break;
-              case 'thinking':
-                if (chunk.content) addThinkingToLastMessage(chunk.content);
-                break;
-              case 'token':
-                if (chunk.content) updateLastMessage(chunk.content);
-                break;
-              case 'error':
-                updateLastMessage(`\n\n⚠️ ${chunk.error}`);
+                if (chunk.content) {
+                  addThinkingToLastMessage(chunk.content);
+                }
                 break;
             }
-          } catch { /* skip malformed */ }
+          } catch {
+            // Skip unparseable chunks
+          }
         }
       }
-    } catch (error) {
-      updateLastMessage(`\n\n⚠️ Lỗi kết nối: ${error instanceof Error ? error.message : 'Unknown'}`);
-    } finally {
+
       setLastMessageComplete();
+    } catch (err) {
+      updateLastMessage(`\n\n❌ Lỗi kết nối: ${err instanceof Error ? err.message : 'Unknown'}`);
+      setLastMessageComplete();
+    } finally {
       setIsGenerating(false);
     }
-  }, [input, isGenerating, messages, selectedAgent, attachedFiles, addUserMessage, addAssistantMessage, setIsGenerating, updateLastMessage, setLastMessageComplete, setLastMessageAgent, addThinkingToLastMessage, clearFiles]);
+  }, [input, attachedFiles, isGenerating, selectedAgent, messages, session?.id, addUserMessage, addAssistantMessage, clearFiles, updateLastMessage, setLastMessageComplete, setLastMessageAgent, addThinkingToLastMessage, setIsGenerating]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1060,167 +1617,153 @@ export default function ChatInterface() {
     }
   };
 
-  // Auto-resize textarea
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    const target = e.target;
-    target.style.height = 'auto';
-    target.style.height = Math.min(target.scrollHeight, 150) + 'px';
+  const handleSuggestionClick = (text: string, role: AgentRole) => {
+    setSelectedAgent(role);
+    setInput(text);
+    inputRef.current?.focus();
   };
 
-  const handleAttachClick = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleSuggestionClick = useCallback((text: string, role: AgentRole) => {
-    setInput(text);
-    setSelectedAgent(role);
-    inputRef.current?.focus();
-  }, [setSelectedAgent]);
-
   return (
-    <>
+    <div className="relative flex flex-col h-screen bg-black text-white overflow-hidden">
       {/* WebGL Background */}
       <WebGLBackground />
-
-      {/* Main layout */}
-      <div className="relative z-10 h-[100dvh] flex flex-col bg-transparent">
-        {/* Hidden file input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".ts,.tsx,.js,.jsx,.py,.json,.md,.txt,.csv,.yaml,.yml,.html,.css,.sql,.sh,.env,.gitignore,.prisma,.toml,.xml,.svg,.log,.rs,.go,.java,.c,.cpp,.rb,.php,.swift,.kt"
-          onChange={handleFileSelect}
-          className="hidden"
-        />
-
-        {/* Glass Header */}
-        <GlassHeader
-          onMenuClick={toggleSidebar}
-          onTerminalToggle={() => setTerminalOpen(!terminalOpen)}
-          onStorageToggle={() => setStorageOpen(!storageOpen)}
-          onNewChat={() => createSession()}
-          isDark={isDark}
-          onThemeToggle={() => setIsDark(!isDark)}
-        />
-
-        {/* Chat Messages Area */}
-        <main
-          className="flex-1 overflow-y-auto min-h-0"
-          style={{ touchAction: 'pan-y', WebkitOverflowScrolling: 'touch' }}
-        >
-          <div className="max-w-3xl mx-auto px-3 py-4 space-y-5">
-            {messages.length === 0 ? (
-              <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
-            ) : (
-              messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        </main>
-
-        {/* Glass Input Area */}
-        <div
-          className="shrink-0 mx-3 mb-3 rounded-2xl backdrop-blur-2xl bg-white/[0.04] border border-white/[0.08] shadow-2xl shadow-black/20"
-          style={{ paddingBottom: 'max(4px, env(safe-area-inset-bottom))' }}
-        >
-          <div className="p-3">
-            {/* Agent Selector */}
-            <div className="mb-2.5">
-              <AgentSelector selected={selectedAgent} onSelect={setSelectedAgent} />
-            </div>
-
-            {/* Attached file chips */}
-            <AnimatePresence>
-              {attachedFiles.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="flex flex-wrap gap-1.5 mb-2"
-                >
-                  {attachedFiles.map((file) => (
-                    <FileChip
-                      key={file.id}
-                      file={file}
-                      onRemove={() => removeFile(file.id)}
-                    />
-                  ))}
-                  <button
-                    onClick={clearFiles}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs text-white/30 hover:bg-red-500/10 hover:text-red-400 transition-all active:scale-90"
-                    style={{ touchAction: 'manipulation', minHeight: '28px' }}
-                  >
-                    <Trash2 size={11} />
-                    Xóa tất cả
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Input row */}
-            <div className="flex items-end gap-2">
-              {/* Attach button */}
-              <button
-                onClick={handleAttachClick}
-                className="shrink-0 p-2.5 rounded-xl hover:bg-white/[0.06] transition-all active:scale-90 text-white/35 hover:text-white/60"
-                style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
-                title="Đính kèm file"
-              >
-                <Paperclip size={18} />
-              </button>
-
-              {/* Textarea */}
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Nhập tin nhắn... (Shift+Enter xuống dòng)"
-                rows={1}
-                className="flex-1 resize-none rounded-xl bg-white/[0.04] border border-white/[0.06] px-4 py-3 pr-4 text-sm text-white/90 placeholder:text-white/25 focus:outline-none focus:bg-white/[0.06] focus:border-violet-500/30 transition-all duration-200 min-h-[44px] max-h-[150px] glass-input"
-                style={{ touchAction: 'manipulation' }}
-              />
-
-              {/* Send button */}
-              <motion.button
-                onClick={handleSend}
-                disabled={(!input.trim() && attachedFiles.length === 0) || isGenerating}
-                whileTap={{ scale: 0.92 }}
-                className={`shrink-0 p-3 rounded-xl transition-all duration-300 ${
-                  (input.trim() || attachedFiles.length > 0) && !isGenerating
-                    ? 'bg-gradient-to-r from-violet-600 to-purple-700 text-white shadow-lg shadow-violet-500/25'
-                    : 'bg-white/[0.04] text-white/20'
-                }`}
-                style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
-              >
-                {isGenerating ? (
-                  <div className="w-5 h-5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
-                ) : (
-                  <Send size={18} />
-                )}
-              </motion.button>
-            </div>
-
-            {/* Bottom info */}
-            <div className="flex items-center justify-center mt-2 px-1">
-              <p className="text-[10px] text-white/20 font-medium tracking-wide">
-                NovaMind AI • 6 Agents • Gemma 4
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
 
       {/* Sidebar */}
       <Sidebar isOpen={sidebarOpen} onClose={toggleSidebar} />
 
-      {/* Terminal Panel */}
-      <TerminalPanel isOpen={terminalOpen} onClose={() => setTerminalOpen(false)} />
+      {/* Workspace Panel */}
+      <WorkspacePanel
+        isOpen={workspaceOpen}
+        onClose={() => setWorkspaceOpen(false)}
+        sessionId={session?.id || 'default'}
+      />
 
-      {/* Storage Panel */}
-      <StoragePanel isOpen={storageOpen} onClose={() => setStorageOpen(false)} />
-    </>
+      {/* Drag overlay for entire chat area */}
+      {isDragging && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-30 flex items-center justify-center bg-violet-600/10 backdrop-blur-sm pointer-events-none"
+        >
+          <div className="flex flex-col items-center gap-3 px-6 py-8 rounded-3xl bg-black/40 border-2 border-dashed border-violet-400/50">
+            <Upload size={48} className="text-violet-400" />
+            <p className="text-lg font-medium text-violet-300">Drop files here</p>
+            <p className="text-sm text-white/40">Files will be uploaded to sandbox & attached to chat</p>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Header */}
+      <GlassHeader
+        onMenuClick={toggleSidebar}
+        onWorkspaceToggle={() => setWorkspaceOpen(prev => !prev)}
+        onNewChat={() => createSession()}
+        isDark={isDark}
+        onThemeToggle={() => setIsDark(prev => !prev)}
+      />
+
+      {/* Messages area */}
+      <div
+        ref={chatContainerRef}
+        className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 panel-scroll relative z-10"
+        onDrop={handleChatDrop}
+        onDragOver={handleChatDragOver}
+        onDragLeave={handleChatDragLeave}
+      >
+        {messages.length === 0 ? (
+          <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
+        ) : (
+          <div className="max-w-3xl mx-auto space-y-4">
+            {messages.map((msg) => (
+              <MessageBubble key={msg.id} message={msg} />
+            ))}
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Agent selector */}
+      <div className="shrink-0 px-3 sm:px-6 py-1.5 relative z-10">
+        <div className="max-w-3xl mx-auto">
+          <AgentSelector selected={selectedAgent} onSelect={setSelectedAgent} />
+        </div>
+      </div>
+
+      {/* File chips */}
+      <AnimatePresence>
+        {attachedFiles.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="shrink-0 px-3 sm:px-6 overflow-hidden relative z-10"
+          >
+            <div className="max-w-3xl mx-auto flex flex-wrap gap-1.5 py-1">
+              {attachedFiles.map((file) => (
+                <FileChip key={file.id} file={file} onRemove={() => removeFile(file.id)} />
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Input area */}
+      <div
+        className="shrink-0 relative z-10 backdrop-blur-2xl bg-white/[0.02] border-t border-white/[0.06]"
+        style={{ paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+      >
+        <div className="max-w-3xl mx-auto px-3 sm:px-6 py-2.5">
+          <div className="flex items-end gap-2 rounded-2xl bg-white/[0.04] backdrop-blur-md border border-white/[0.08] px-3 py-2 focus-within:border-white/[0.15] transition-all">
+            {/* File attach button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 p-2 rounded-xl hover:bg-white/[0.06] text-white/40 hover:text-white/70 transition-all active:scale-90 mb-0.5"
+              style={{ touchAction: 'manipulation', minHeight: '36px', minWidth: '36px' }}
+            >
+              <Paperclip size={18} />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileSelect}
+            />
+
+            {/* Text input */}
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Nhập tin nhắn..."
+              rows={1}
+              className="flex-1 bg-transparent resize-none outline-none text-sm text-white/80 placeholder:text-white/25 py-2 leading-relaxed"
+              style={{ touchAction: 'manipulation', fontSize: '15px', maxHeight: '120px' }}
+              disabled={isGenerating}
+            />
+
+            {/* Send button */}
+            <button
+              onClick={handleSend}
+              disabled={isGenerating || (!input.trim() && attachedFiles.length === 0)}
+              className="shrink-0 p-2 rounded-xl bg-gradient-to-br from-violet-600 to-purple-700 text-white hover:shadow-lg hover:shadow-violet-600/20 transition-all active:scale-90 disabled:opacity-30 disabled:hover:shadow-none mb-0.5"
+              style={{ touchAction: 'manipulation', minHeight: '36px', minWidth: '36px' }}
+            >
+              {isGenerating ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Send size={16} />
+              )}
+            </button>
+          </div>
+
+          <p className="text-center text-[10px] text-white/20 mt-1.5 hidden sm:block">
+            NovaMind AI • Sandbox • Gemma 4 • Mỗi session có workspace riêng
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }

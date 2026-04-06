@@ -175,3 +175,55 @@ Upgrade NovaMind AI to Gemma 4 with enhanced multi-agent system, file attachment
 - `bun run lint` passed with zero warnings
 - All routes verified: /, /api/chat, /api/health, /api/files, /api/debug
 - Dev server running normally on port 3000
+
+---
+## Task ID: 9 - sandbox-workspace
+### Work Task
+Add per-chat sandbox workspace with isolated storage, terminal, file editor, drag & drop, AI tool execution, and unified workspace panel.
+
+### Work Summary
+
+**1. Sandbox API Route (`/api/sandbox/[sessionId]/route.ts`):**
+- Created comprehensive sandbox API with full CRUD operations scoped per session
+- Base directory: `/tmp/sandbox/{sessionId}/` - auto-created on first access
+- **POST** actions: `exec` (terminal commands, 15s timeout), `write` (create/overwrite files, 5MB limit), `read` (file content, 50KB max response), `delete`, `edit` (multi-edit search/replace), `mkdir`
+- **GET**: Lists all files recursively with metadata (name, type, size, modified, path) + system info (platform, arch, memory, sandbox size)
+- **DELETE**: Clears entire sandbox directory
+- **POST multipart**: File upload (10MB limit per file) with optional subdirectory path
+- Security: session ID validation (alphanumeric + hyphens + underscores only), path traversal prevention, dangerous command blocklist (`rm -rf /`, `mkfs`, `dd if=`, `shutdown`, `reboot`, fork bombs, etc.), 50MB total sandbox size limit, command timeout 15s, max output 50KB
+
+**2. Orchestrator Upgrade (`lib/agents/orchestrator.ts`):**
+- Added `processMessageWithTools()` - new main entry point that wraps `processMessage` with sandbox tool detection
+- Added `executeSandboxTool()` - executes sandbox operations via internal HTTP call
+- Added `detectToolPatterns()` - scans agent responses for tool-use patterns:
+  - ` ```file:path/to/file.ts\ncontent\n``` ` → auto-writes file to sandbox
+  - ` ```terminal\ncommand\n``` ` or ` ```bash\ncommand\n``` ` → auto-executes command
+- After agent finishes, yields `tool_call` and `tool_result` StreamChunks so the user sees tool execution in real-time
+- All existing exports preserved: `processMessage`, `classifyIntent`, `buildMessages`, `buildFileContext`
+
+**3. Chat Route Update (`api/chat/route.ts`):**
+- Accepts `sessionId` from request body
+- Uses `processMessageWithTools` when sessionId is provided, falls back to `processMessage` otherwise
+- All existing logic preserved
+
+**4. ChatInterface.tsx - MAJOR REWRITE:**
+- **Unified WorkspacePanel** replaces separate TerminalPanel + StoragePanel:
+  - 3 tabs: Files, Terminal, System
+  - **Files tab**: file browser with upload button, "New File" button, file list with type icons/sizes/dates, click-to-open editor, hover-to-delete (right-click on mobile), download button, drag & drop zone within panel
+  - **FileEditor**: inline textarea editor with save/download/close, shows path/char count, dirty state indicator
+  - **Terminal tab**: sandbox-scoped terminal with command history (up/down arrows), auto-scroll, 15s timeout
+  - **System tab**: system info (platform, arch, memory), sandbox info (path, files count, size bar), clear sandbox button
+- **File Drag & Drop** on entire chat area: visual overlay "Drop files here", files auto-uploaded to sandbox and attached to chat
+- **Enhanced Markdown**: code blocks with filename detection (` ```typescript:path/to/file.ts `), copy button on multi-line code blocks, language/filename header bar
+- **Tool Call Display**: MessageBubble renders toolCalls section with Wrench icon showing tool name/args/result
+- **GlassHeader**: single Workspace button (PanelRight icon) replaces separate Terminal/Storage buttons
+- **sessionId passed** to all chat API calls for sandbox-aware processing
+- **Sidebar**: shows message count per session
+- **WelcomeScreen**: updated text to mention sandbox, added sandbox-related suggestion
+- All mobile optimizations preserved: 44px touch targets, safe-area-insets, touch-action: manipulation
+
+**5. Build Verification:**
+- `npm run lint` passed with zero warnings
+- `npm run build` compiled successfully - all routes including `/api/sandbox/[sessionId]`
+- Dev server running normally on port 3000
+- No files modified: deploy.yml, globals.css, WebGLBackground.tsx, store/chat-store.ts, lib/types.ts, lib/ollama.ts

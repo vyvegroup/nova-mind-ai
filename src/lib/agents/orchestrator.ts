@@ -1,7 +1,7 @@
 // ============================================
 // NovaMind AI - Multi-Agent Orchestrator
 // Enhanced with chain-of-thought, auto-chain mode,
-// and Lens (analyzer) agent
+// sandbox tool use, and Lens (analyzer) agent
 // Powered by Gemma 4
 // ============================================
 
@@ -306,6 +306,209 @@ export async function* processMessage(
   const messages = buildMessages(systemPrompt, conversationHistory, userMessage, fileContext);
 
   yield* generateResponse(effectiveAgent, messages);
+}
+
+// =============================================
+// Sandbox Tool Execution Helpers
+// =============================================
+
+/**
+ * Execute a sandbox tool (write file, run command, read file, etc.)
+ */
+async function executeSandboxTool(
+  sessionId: string,
+  action: string,
+  args: Record<string, unknown>
+): Promise<string> {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+  const response = await fetch(`${baseUrl}/api/sandbox/${sessionId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, ...args }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Request failed' }));
+    return `Error: ${errorData.error || response.statusText}`;
+  }
+
+  const data = await response.json();
+  if (action === 'exec') {
+    return data.output || '(no output)';
+  }
+  if (action === 'read') {
+    return data.content || '';
+  }
+  if (action === 'write') {
+    return `File written: ${data.path}`;
+  }
+  if (action === 'edit') {
+    return `${data.changesApplied} edit(s) applied`;
+  }
+  if (action === 'delete') {
+    return 'Deleted successfully';
+  }
+  if (action === 'mkdir') {
+    return 'Directory created';
+  }
+  return JSON.stringify(data);
+}
+
+/**
+ * Detect tool patterns from the agent's response
+ */
+function detectToolPatterns(fullResponse: string): Array<{
+  toolName: string;
+  args: Record<string, unknown>;
+  id: string;
+}> {
+  const tools: Array<{ toolName: string; args: Record<string, unknown>; id: string }> = [];
+  let toolIndex = 0;
+
+  // Pattern 1: ```file:path/to/file.ts\ncontent\n```
+  const fileBlockRegex = /```file:(.+?)\n([\s\S]*?)```/g;
+  let match;
+  while ((match = fileBlockRegex.exec(fullResponse)) !== null) {
+    const filePath = match[1].trim();
+    const content = match[2];
+    if (filePath && content) {
+      tools.push({
+        id: `tool-${Date.now()}-${toolIndex++}`,
+        toolName: 'write_file',
+        args: { path: filePath, content },
+      });
+    }
+  }
+
+  // Pattern 2: ```terminal\ncommand\n``` or ```bash\ncommand\n```
+  const terminalBlockRegex = /```(?:terminal|bash)\n([\s\S]*?)```/g;
+  while ((match = terminalBlockRegex.exec(fullResponse)) !== null) {
+    const command = match[1].trim();
+    if (command && command.length > 0) {
+      tools.push({
+        id: `tool-${Date.now()}-${toolIndex++}`,
+        toolName: 'exec_command',
+        args: { command },
+      });
+    }
+  }
+
+  return tools;
+}
+
+/**
+ * Main entry point with sandbox tool support
+ * Wraps processMessage and auto-executes detected tools
+ */
+export async function* processMessageWithTools(
+  userMessage: string,
+  conversationHistory: Message[],
+  activeAgentOverride?: AgentRole,
+  attachedFiles?: Array<{ name: string; content: string }>,
+  sessionId?: string,
+): AsyncGenerator<StreamChunk> {
+  // Add sandbox awareness to the agent's system prompt
+  const sandboxNote = sessionId
+    ? '\n\nSandbox Tools Available:\n'
+      + '- Khi cần tạo file, dùng code block: ```file:path/to/file.ts\ncontent\n```\n'
+      + '- Khi cần chạy lệnh, dùng code block: ```terminal\ncommand\n```\n'
+      + '- Mỗi chat session có workspace riêng tại /tmp/sandbox/{sessionId}\n'
+      + '- Bạn có thể tạo, đọc, sửa file và chạy terminal commands'
+    : '';
+
+  // If we have a sessionId, enhance the user message with sandbox context
+  let enhancedMessage = userMessage;
+  if (sessionId) {
+    enhancedMessage = userMessage;
+  }
+
+  // Run the normal processMessage pipeline
+  let fullResponse = '';
+  const generator = processMessage(enhancedMessage, conversationHistory, activeAgentOverride, attachedFiles);
+
+  for await (const chunk of generator) {
+    yield chunk;
+    if (chunk.type === 'token' && chunk.content) {
+      fullResponse += chunk.content;
+    }
+    if (chunk.type === 'done' && chunk.content) {
+      fullResponse = chunk.content;
+    }
+  }
+
+  // After agent finishes, scan for tool patterns and execute them
+  if (sessionId && fullResponse.length > 0) {
+    const detectedTools = detectToolPatterns(fullResponse);
+
+    if (detectedTools.length > 0) {
+      yield {
+        type: 'thinking',
+        content: `🔧 Phát hiện ${detectedTools.length} tool call(s), đang thực thi...`,
+      };
+
+      for (const tool of detectedTools) {
+        // Yield tool_call
+        yield {
+          type: 'tool_call',
+          content: `${tool.toolName}: ${JSON.stringify(tool.args).substring(0, 100)}`,
+          toolCall: {
+            id: tool.id,
+            name: tool.toolName,
+            arguments: tool.args,
+          },
+        };
+
+        try {
+          let action: string;
+          let args: Record<string, unknown>;
+
+          switch (tool.toolName) {
+            case 'write_file':
+              action = 'write';
+              args = { path: tool.args.path, content: tool.args.content };
+              break;
+            case 'exec_command':
+              action = 'exec';
+              args = { command: tool.args.command };
+              break;
+            default:
+              action = 'exec';
+              args = { command: tool.args.command || '' };
+          }
+
+          const result = await executeSandboxTool(sessionId, action, args);
+
+          // Yield tool_result
+          yield {
+            type: 'tool_result',
+            content: result.substring(0, 500),
+            toolCall: {
+              id: tool.id,
+              name: tool.toolName,
+              arguments: tool.args,
+              result: result.substring(0, 2000),
+            },
+          };
+        } catch (error) {
+          yield {
+            type: 'tool_result',
+            content: `Tool error: ${error instanceof Error ? error.message : 'Unknown'}`,
+            toolCall: {
+              id: tool.id,
+              name: tool.toolName,
+              arguments: tool.args,
+              result: `Error: ${error instanceof Error ? error.message : 'Unknown'}`,
+            },
+          };
+        }
+      }
+
+      yield {
+        type: 'done',
+        content: fullResponse,
+      };
+    }
+  }
 }
 
 /**
