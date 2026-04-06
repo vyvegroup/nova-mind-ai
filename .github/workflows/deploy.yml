@@ -1,9 +1,8 @@
 # ============================================
-# NovaMind AI - GitHub Actions Workflow
-# Deploy live with Ollama + Gemma + Free Tunnel
-# FREE - No secret, no account, no registration needed
-# Uses localtunnel + cloudflared as fallback
-# Timeout: 6 hours for personal use
+# NovaMind AI - GitHub Actions Live Deploy
+# 100% FREE - No secrets, no accounts, no registration
+# Tunnel priority: localtunnel → cloudflared → localhost.run
+# Timeout: 6 hours for persistent personal AI
 # ============================================
 
 name: 🚀 NovaMind AI - Live Deploy
@@ -21,7 +20,6 @@ on:
         options:
           - gemma3:4b
           - gemma3:1b
-          - gemma2:9b
           - gemma2:2b
           - llama3.2:3b
 
@@ -35,9 +33,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 360
-
-    outputs:
-      tunnel_url: ${{ steps.tunnel.outputs.url }}
 
     steps:
       - name: 📥 Checkout code
@@ -54,7 +49,7 @@ jobs:
           echo "$HOME/.bun/bin" >> $GITHUB_PATH
 
       - name: 📦 Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: 🔨 Build Next.js
         run: bun run build
@@ -64,103 +59,185 @@ jobs:
       - name: 🤖 Install Ollama
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
-          ollama --version
+          echo "Ollama version: $(ollama --version)"
 
-      - name: 🚀 Start Ollama + Pull Model
+      - name: 🧠 Start Ollama + Pull Model
         run: |
-          ollama serve &
-          echo "Waiting for Ollama..."
+          # Start Ollama in background
+          ollama serve > /tmp/ollama.log 2>&1 &
+          OLLAMA_PID=$!
+          echo "OLLAMA_PID=$OLLAMA_PID" >> $GITHUB_ENV
+
+          # Wait for Ollama to be ready (max 60s)
+          echo "Waiting for Ollama to start..."
           for i in $(seq 1 30); do
-            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-              echo "✅ Ollama running!"
+            if curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "✅ Ollama is running (PID: $OLLAMA_PID)"
               break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Ollama failed to start!"
+              cat /tmp/ollama.log
+              exit 1
             fi
             sleep 2
           done
 
-          echo "🧠 Pulling ${{ env.OLLAMA_MODEL }}..."
-          ollama pull ${{ env.OLLAMA_MODEL }}
-          echo "✅ Model ready!"
-
-      - name: 🌐 Start Next.js
-        run: |
-          bun start &
-          for i in $(seq 1 30); do
-            if curl -s http://localhost:3000 > /dev/null 2>&1; then
-              echo "✅ Next.js running!"
-              break
-            fi
-            sleep 2
-          done
-
-      - name: 🔗 Setup Tunnel (localtunnel + cloudflared)
-        id: tunnel
-        run: |
-          TUNNEL_URL=""
-
-          # METHOD 1: Try localtunnel (npm, free, no account)
-          echo "📡 Attempting localtunnel..."
-          npx --yes localtunnel --port 3000 > /tmp/tunnel.log 2>&1 &
-          LT_PID=$!
-
-          for i in $(seq 1 30); do
-            sleep 2
-            TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.loca\.lt' /tmp/tunnel.log 2>/dev/null | head -1)
-            if [ -n "$TUNNEL_URL" ]; then
-              echo "✅ localtunnel connected: $TUNNEL_URL"
-              break
-            fi
-            echo "localtunnel waiting... ($i/30)"
-          done
-
-          # METHOD 2: Fallback to cloudflared
-          if [ -z "$TUNNEL_URL" ]; then
-            echo "⚠️ localtunnel failed, trying cloudflared..."
-            kill $LT_PID 2>/dev/null
-            rm -f /tmp/tunnel.log
-
-            mkdir -p "$HOME/bin"
-            wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O "$HOME/bin/cloudflared"
-            chmod +x "$HOME/bin/cloudflared"
-
-            cloudflared tunnel --url http://localhost:3000 > /tmp/tunnel.log 2>&1 &
-            CF_PID=$!
-
-            for i in $(seq 1 30); do
-              sleep 2
-              TUNNEL_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log 2>/dev/null | head -1)
-              if [ -n "$TUNNEL_URL" ]; then
-                echo "✅ cloudflared connected: $TUNNEL_URL"
-                break
-              fi
-              echo "cloudflared waiting... ($i/30)"
-            done
-
-            if [ -z "$TUNNEL_URL" ]; then
-              kill $CF_PID 2>/dev/null
-            fi
-          fi
-
-          # Check result
-          if [ -z "$TUNNEL_URL" ]; then
-            echo "❌ All tunnel methods failed"
-            echo "--- localtunnel log ---"
-            cat /tmp/lt.log 2>/dev/null || echo "(no log)"
-            echo "--- cloudflared log ---"
-            cat /tmp/tunnel.log 2>/dev/null || echo "(no log)"
+          # Pull the model
+          echo "Pulling model: ${{ env.OLLAMA_MODEL }}..."
+          if ollama pull ${{ env.OLLAMA_MODEL }} 2>&1 | tee /tmp/pull.log; then
+            echo "✅ Model ${{ env.OLLAMA_MODEL }} ready!"
+          else
+            echo "❌ Failed to pull model"
+            cat /tmp/pull.log
             exit 1
           fi
 
-          # Save URL
+          # Verify model
+          echo "Verifying model..."
+          ollama list
+
+      - name: 🌐 Start Next.js Server
+        run: |
+          # Start the server in background
+          cd /home/runner/work/nova-mind-ai/nova-mind-ai
+          bun start > /tmp/server.log 2>&1 &
+          SERVER_PID=$!
+          echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+
+          # Wait for server to be ready (max 60s)
+          echo "Waiting for Next.js to start..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Next.js is running (PID: $SERVER_PID)"
+              # Show the log to confirm
+              head -5 /tmp/server.log
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Next.js failed to start!"
+              cat /tmp/server.log
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: 🔗 Setup Tunnel
+        id: tunnel
+        run: |
+          TUNNEL_URL=""
+          TUNNEL_PID=""
+
+          # ===== METHOD 1: localtunnel =====
+          echo "📡 Method 1: Trying localtunnel..."
+          npx --yes localtunnel --port 3000 > /tmp/tunnel.log 2>&1 &
+          TUNNEL_PID=$!
+
+          # Wait up to 90s for tunnel URL
+          for i in $(seq 1 45); do
+            sleep 2
+            # localtunnel prints "your url is: https://xxx.loca.lt"
+            TUNNEL_URL=$(cat /tmp/tunnel.log 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.loca\.lt' | head -1)
+            if [ -z "$TUNNEL_URL" ]; then
+              # Also try alternative format
+              TUNNEL_URL=$(cat /tmp/tunnel.log 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.localtunnel\.me' | head -1)
+            fi
+            if [ -n "$TUNNEL_URL" ]; then
+              echo "✅ localtunnel connected: $TUNNEL_URL"
+              echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
+              echo "TUNNEL_METHOD=localtunnel" >> $GITHUB_ENV
+              break
+            fi
+            if [ $i -eq 45 ]; then
+              echo "⚠️ localtunnel failed after 90s"
+              cat /tmp/tunnel.log 2>/dev/null
+            fi
+          done
+
+          # ===== METHOD 2: cloudflared quick tunnel =====
+          if [ -z "$TUNNEL_URL" ]; then
+            echo ""
+            echo "📡 Method 2: Trying cloudflared quick tunnel..."
+            kill $TUNNEL_PID 2>/dev/null || true
+            rm -f /tmp/tunnel.log
+
+            wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /tmp/cloudflared
+            chmod +x /tmp/cloudflared
+
+            /tmp/cloudflared tunnel --url http://localhost:3000 > /tmp/tunnel.log 2>&1 &
+            TUNNEL_PID=$!
+
+            for i in $(seq 1 45); do
+              sleep 2
+              # cloudflared prints INF + URL with https://xxx.trycloudflare.com
+              TUNNEL_URL=$(cat /tmp/tunnel.log 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' | head -1)
+              if [ -n "$TUNNEL_URL" ]; then
+                echo "✅ cloudflared connected: $TUNNEL_URL"
+                echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
+                echo "TUNNEL_METHOD=cloudflared" >> $GITHUB_ENV
+                break
+              fi
+              if [ $i -eq 45 ]; then
+                echo "⚠️ cloudflared failed after 90s"
+                cat /tmp/tunnel.log 2>/dev/null
+              fi
+            done
+
+            if [ -z "$TUNNEL_URL" ]; then
+              kill $TUNNEL_PID 2>/dev/null || true
+            fi
+          fi
+
+          # ===== METHOD 3: localhost.run (SSH tunnel) =====
+          if [ -z "$TUNNEL_URL" ]; then
+            echo ""
+            echo "📡 Method 3: Trying localhost.run (SSH)..."
+            rm -f /tmp/tunnel.log
+
+            # localhost.run uses SSH, URL comes back on stderr
+            ssh -R 80:localhost:3000 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null nokey@localhost.run > /tmp/tunnel.log 2>&1 &
+            TUNNEL_PID=$!
+
+            for i in $(seq 1 30); do
+              sleep 2
+              # localhost.run prints the URL to stderr
+              TUNNEL_URL=$(cat /tmp/tunnel.log 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.lhr\.life' | head -1)
+              if [ -z "$TUNNEL_URL" ]; then
+                TUNNEL_URL=$(cat /tmp/tunnel.log 2>/dev/null | grep -oE 'https://[a-zA-Z0-9.-]+\.localhost\.run' | head -1)
+              fi
+              if [ -n "$TUNNEL_URL" ]; then
+                echo "✅ localhost.run connected: $TUNNEL_URL"
+                echo "TUNNEL_PID=$TUNNEL_PID" >> $GITHUB_ENV
+                echo "TUNNEL_METHOD=localhost.run" >> $GITHUB_ENV
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "⚠️ localhost.run failed after 60s"
+                cat /tmp/tunnel.log 2>/dev/null
+              fi
+            done
+
+            if [ -z "$TUNNEL_URL" ]; then
+              kill $TUNNEL_PID 2>/dev/null || true
+            fi
+          fi
+
+          # ===== RESULT =====
+          echo ""
+          if [ -z "$TUNNEL_URL" ]; then
+            echo "❌ All tunnel methods failed!"
+            exit 1
+          fi
+
           echo "url=$TUNNEL_URL" >> $GITHUB_OUTPUT
           echo "$TUNNEL_URL" > /tmp/tunnel_url.txt
           echo ""
           echo "============================================"
           echo "  🚀 NovaMind AI is LIVE!"
-          echo "  🌐 URL: $TUNNEL_URL"
+          echo "  🌐 $TUNNEL_URL"
           echo "============================================"
 
-      - name: 📡 Publish URL (Upload artifact)
+      - name: 📡 Publish Tunnel URL
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -168,8 +245,24 @@ jobs:
           path: /tmp/tunnel_url.txt
           retention-days: 1
 
-      - name: 💓 Keep Alive
-        timeout-minutes: 350
+      - name: ✅ Verify Deployment
+        if: success()
+        run: |
+          TUNNEL_URL=$(cat /tmp/tunnel_url.txt)
+          echo "Testing tunnel URL: $TUNNEL_URL"
+          
+          for i in $(seq 1 10); do
+            HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "$TUNNEL_URL" 2>/dev/null || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Tunnel verified! HTTP $HTTP_CODE"
+              break
+            fi
+            echo "Attempt $i: HTTP $HTTP_CODE (waiting...)"
+            sleep 5
+          done
+
+      - name: 💓 Keep Alive + Monitor
+        timeout-minutes: 348
         run: |
           MINUTES=0
           while true; do
@@ -177,20 +270,29 @@ jobs:
             MINUTES=$((MINUTES + 1))
 
             # Check Next.js
-            if ! curl -s http://localhost:3000 > /dev/null 2>&1; then
-              echo "⚠️ [$MINUTES min] Next.js died, restarting..."
-              bun start &
+            if ! curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "⚠️ [$MINUTES min] Next.js down, restarting..."
+              bun start > /tmp/server.log 2>&1 &
+              echo "SERVER_PID=$!" >> $GITHUB_ENV
               sleep 10
             fi
 
             # Check Ollama
-            if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
-              echo "⚠️ [$MINUTES min] Ollama died, restarting..."
-              ollama serve &
+            if ! curl -sf http://localhost:11434/api/tags > /dev/null 2>&1; then
+              echo "⚠️ [$MINUTES min] Ollama down, restarting..."
+              ollama serve > /tmp/ollama.log 2>&1 &
+              echo "OLLAMA_PID=$!" >> $GITHUB_ENV
               sleep 10
+              # Re-pull model if needed
+              if ! ollama list | grep -q "${{ env.OLLAMA_MODEL }}"; then
+                echo "Model missing, re-pulling..."
+                ollama pull ${{ env.OLLAMA_MODEL }}
+              fi
             fi
 
+            # Log status every 10 min
             if (( MINUTES % 10 == 0 )); then
-              echo "⏰ Uptime: ${MINUTES} min"
+              TUNNEL_URL=$(cat /tmp/tunnel_url.txt 2>/dev/null || echo "unknown")
+              echo "⏰ Uptime: ${MINUTES} min | URL: $TUNNEL_URL"
             fi
           done

@@ -19,7 +19,7 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const ollama = getOllamaClient();
     const { action, model } = await request.json() as { action: string; model?: string };
