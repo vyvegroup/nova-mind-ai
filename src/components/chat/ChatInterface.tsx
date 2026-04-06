@@ -163,7 +163,7 @@ function GlassHeader({
   const cfg = statusConfig[modelStatus];
 
   return (
-    <header className="shrink-0 relative backdrop-blur-2xl bg-white/[0.03] border-b border-white/[0.06] z-30">
+    <header className="shrink-0 relative backdrop-blur-2xl border-b border-white/[0.08] z-30" style={{ backgroundColor: 'rgba(10, 10, 14, 0.85)' }}>
       <div className="flex items-center justify-between px-3 py-2" style={{ paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
         {/* Left: hamburger + logo + title */}
         <div className="flex items-center gap-2.5 min-w-0">
@@ -178,17 +178,17 @@ function GlassHeader({
             <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-500/20 shrink-0">
               <Zap size={18} className="text-white" />
             </div>
-            <div className="hidden sm:block min-w-0">
+            <div className="min-w-0">
               <h1 className="font-bold text-sm leading-tight gradient-text">VenAI</h1>
-              <p className="text-[10px] text-white/40 font-medium">Gemma 4 • Sandbox</p>
+              <p className="text-[10px] text-white/40 font-medium">Gemma 4 • Live Agent</p>
             </div>
           </div>
         </div>
 
         {/* Center: status pill */}
-        <div className={`hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs backdrop-blur-sm border border-white/[0.06] ${cfg.bg} ${cfg.color}`}>
-          <div className={`w-2 h-2 rounded-full ${cfg.dotColor} ${modelStatus === 'loading' ? 'pulse-dot' : ''}`} />
-          <span className="truncate max-w-[180px]">{modelMessage}</span>
+        <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] backdrop-blur-sm border border-white/[0.06] ${cfg.bg} ${cfg.color}`}>
+          <div className={`w-1.5 h-1.5 rounded-full ${cfg.dotColor} ${modelStatus === 'loading' ? 'pulse-dot' : ''}`} />
+          <span className="truncate max-w-[120px] sm:max-w-[180px]">{modelMessage}</span>
         </div>
 
         {/* Right: action buttons */}
@@ -211,7 +211,7 @@ function GlassHeader({
           </button>
           <button
             onClick={onThemeToggle}
-            className="p-2.5 rounded-xl hover:bg-white/[0.06] transition-all active:scale-95 hidden sm:flex"
+            className="p-2.5 rounded-xl hover:bg-white/[0.06] transition-all active:scale-95"
             style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
           >
             {isDark ? <Sun size={18} className="text-white/60" /> : <Moon size={18} className="text-white/60" />}
@@ -1254,12 +1254,12 @@ function WorkspacePanel({
 // =============================================
 function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (text: string, role: AgentRole) => void }) {
   const suggestions: Array<{ text: string; icon: React.ReactNode; role: AgentRole }> = [
-    { text: 'Viết function sort array trong TypeScript', icon: <Code size={16} />, role: 'coder' },
+    { text: 'Viết function sort array và test nó', icon: <Code size={16} />, role: 'coder' },
+    { text: 'Tạo web server bằng Node.js và chạy thử', icon: <Code size={16} />, role: 'coder' },
+    { text: 'Kiểm tra hệ thống: CPU, RAM, disk', icon: <TerminalIcon size={16} />, role: 'coder' },
     { text: 'Phân tích xu hướng AI 2025', icon: <BookOpen size={16} />, role: 'researcher' },
     { text: 'Lập kế hoạch học web development', icon: <ListChecks size={16} />, role: 'planner' },
     { text: 'Giải thích machine learning đơn giản', icon: <Brain size={16} />, role: 'orchestrator' },
-    { text: 'Review code best practices', icon: <Search size={16} />, role: 'reviewer' },
-    { text: 'Tạo file và chạy lệnh trong sandbox', icon: <Wrench size={16} />, role: 'coder' },
   ];
 
   return (
@@ -1292,7 +1292,7 @@ function WelcomeScreen({ onSuggestionClick }: { onSuggestionClick: (text: string
         transition={{ delay: 0.3, duration: 0.5 }}
         className="text-sm text-white/45 max-w-md mb-8 leading-relaxed"
       >
-        VenAI - AI Multi-Agent với 6 chuyên gia thông minh và Sandbox workspace cho mỗi phiên chat. Sẵn sàng hỗ trợ bạn.
+        VenAI - AI Multi-Agent LIVE với quyền thực thi thực tế. Mỗi agent có thể chạy lệnh terminal, tạo file, và tương tác với sandbox.
       </motion.p>
 
       {/* Suggestion cards */}
@@ -1759,8 +1759,8 @@ export default function ChatInterface() {
             </button>
           </div>
 
-          <p className="text-center text-[10px] text-white/20 mt-1.5 hidden sm:block">
-            VenAI • Sandbox • Gemma 4 • Mỗi session có workspace riêng
+          <p className="text-center text-[10px] text-white/20 mt-1.5">
+            VenAI • Live Agent • Gemma 4 • Terminal • Sandbox
           </p>
         </div>
       </div>

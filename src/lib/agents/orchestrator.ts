@@ -1,17 +1,16 @@
 // ============================================
-// VenAI - Multi-Agent Orchestrator
-// Enhanced with chain-of-thought, auto-chain mode,
-// sandbox tool use, and Lens (analyzer) agent
+// VenAI - Multi-Agent Live Orchestrator
+// TRUE AGENT LOOP: Think → Act → Observe → Think
+// Iterative tool use with tool results fed back
 // Powered by Gemma 4
 // ============================================
 
 import { AGENT_DEFINITIONS, type AgentRole, type Message, type OllamaMessage, type StreamChunk } from '../types';
 import { getOllamaClient } from '../ollama';
 
-/**
- * Determines which agent should handle the user's message
- * Enhanced with more Vietnamese keywords and better scoring
- */
+// =============================================
+// Intent Classification (unchanged)
+// =============================================
 function classifyIntent(message: string): { role: AgentRole; confidence: number } {
   const lower = message.toLowerCase();
 
@@ -31,6 +30,7 @@ function classifyIntent(message: string): { role: AgentRole; confidence: number 
       'migrate', 'database schema', 'orm', 'query', 'mutation',
       'test case', 'unit test', 'integration test', 'e2e test',
       'type definition', 'generic', 'enum', 'tuple', 'union type',
+      'tạo file', 'chạy lệnh', 'thực thi', 'run', 'execute', 'create file',
     ],
     researcher: [
       'research', 'nghiên cứu', 'analyze', 'phân tích', 'data', 'statistics',
@@ -54,7 +54,7 @@ function classifyIntent(message: string): { role: AgentRole; confidence: number 
       'chuẩn bị', 'prepare', 'phân công', 'assign', 'delegate',
       'sprint', 'agile', 'scrum', 'kanban', 'phased approach',
       'từ a đến z', 'từng bước một', 'guide', 'hướng dẫn từng bước',
-      'lộ trình', 'roadmap', 'phân阶段', 'giai đoạn',
+      'lộ trình', 'roadmap', 'giai đoạn',
     ],
     reviewer: [
       'review', 'đánh giá', 'check', 'kiểm tra', 'audit', 'quality',
@@ -96,14 +96,9 @@ function classifyIntent(message: string): { role: AgentRole; confidence: number 
     }
   }
 
-  // Bonus: if message references "file" or "đính kèm", boost analyzer
   if (lower.includes('file') || lower.includes('đính kèm') || lower.includes('tài liệu') || lower.includes('upload')) {
     scores.analyzer += 0.1;
   }
-
-  // Complex task detection for auto-chain
-  // If multiple categories score high, it might need chaining
-  const highScores = Object.entries(scores).filter(([role, s]) => s > 0.5 && role !== 'orchestrator');
 
   let bestRole: AgentRole = 'orchestrator';
   let bestScore = 0;
@@ -122,83 +117,21 @@ function classifyIntent(message: string): { role: AgentRole; confidence: number 
   return { role: bestRole, confidence: Math.min(bestScore, 1) };
 }
 
-/**
- * Check if a message requires multi-agent chaining
- */
-function shouldChain(message: string, filesCount: number): { should: boolean; chain: Array<{ agent: AgentRole; purpose: string }> } {
-  const lower = message.toLowerCase();
-  const chain: Array<{ agent: AgentRole; purpose: string }> = [];
-
-  // If files are attached, always include analyzer first
-  if (filesCount > 0) {
-    chain.push({ agent: 'analyzer', purpose: 'Phân tích nội dung file đính kèm' });
-  }
-
-  // Detect complex tasks that benefit from chaining
-  const codingThenReview = (
-    lower.includes('viết') && (lower.includes('code') || lower.includes('lập trình')) && 
-    (lower.includes('review') || lower.includes('kiểm tra') || lower.includes('tối ưu') || lower.includes('đánh giá'))
-  );
-
-  const researchThenPlan = (
-    (lower.includes('nghiên cứu') || lower.includes('phân tích') || lower.includes('tìm hiểu')) &&
-    (lower.includes('kế hoạch') || lower.includes('chiến lược') || lower.includes('bước') || lower.includes('lộ trình'))
-  );
-
-  const codeThenReviewKeywords = [
-    'viết code và review', 'code rồi kiểm tra', 'implement và review',
-    'create and review', 'build and optimize', 'viết và tối ưu',
-  ];
-
-  for (const kw of codeThenReviewKeywords) {
-    if (lower.includes(kw)) {
-      chain.push({ agent: 'coder', purpose: 'Viết và triển khai code' });
-      chain.push({ agent: 'reviewer', purpose: 'Review và đánh giá code' });
-      return { should: true, chain };
-    }
-  }
-
-  if (codingThenReview) {
-    chain.push({ agent: 'coder', purpose: 'Viết và triển khai code' });
-    chain.push({ agent: 'reviewer', purpose: 'Review và đánh giá' });
-    return { should: true, chain };
-  }
-
-  if (researchThenPlan) {
-    chain.push({ agent: 'researcher', purpose: 'Nghiên cứu và phân tích' });
-    chain.push({ agent: 'planner', purpose: 'Lập kế hoạch hành động' });
-    return { should: true, chain };
-  }
-
-  if (filesCount > 0) {
-    // After analyzing files, determine if another agent is needed
-    if (lower.includes('sửa') || lower.includes('fix') || lower.includes('viết lại') || lower.includes('refactor')) {
-      chain.push({ agent: 'coder', purpose: 'Sửa và cải thiện dựa trên phân tích' });
-      return { should: true, chain };
-    }
-    if (lower.includes('review') || lower.includes('đánh giá') || lower.includes('kiểm tra')) {
-      chain.push({ agent: 'reviewer', purpose: 'Review và đánh giá' });
-      return { should: true, chain };
-    }
-    // Just analyzer is enough
-    return { should: chain.length > 0, chain };
-  }
-
-  return { should: false, chain: [] };
-}
-
+// =============================================
+// Message Building
+// =============================================
 function buildMessages(
   systemPrompt: string,
   history: Message[],
   currentUserMessage: string,
   fileContext?: string,
-  toolContext?: string
+  toolContext?: string,
+  extraMessages?: Array<{ role: 'user' | 'assistant'; content: string }>
 ): OllamaMessage[] {
   const messages: OllamaMessage[] = [];
 
   let enhancedSystemPrompt = systemPrompt;
 
-  // Add thinking/reasoning instruction for Gemma 4
   enhancedSystemPrompt += '\n\nQuy tắc suy luận (Gemma 4 Thinking Mode):\n';
   enhancedSystemPrompt += '- Trước khi trả lời, suy nghĩ từng bước (think step-by-step)\n';
   enhancedSystemPrompt += '- Phân tích vấn đề từ nhiều góc độ\n';
@@ -215,9 +148,16 @@ function buildMessages(
 
   messages.push({ role: 'system', content: enhancedSystemPrompt });
 
-  const recentHistory = history.slice(-10);
+  const recentHistory = history.slice(-6);
   for (const msg of recentHistory) {
     if (msg.role === 'user' || msg.role === 'assistant') {
+      messages.push({ role: msg.role, content: msg.content });
+    }
+  }
+
+  // Add any extra context messages (e.g., previous tool results)
+  if (extraMessages) {
+    for (const msg of extraMessages) {
       messages.push({ role: msg.role, content: msg.content });
     }
   }
@@ -226,13 +166,10 @@ function buildMessages(
   return messages;
 }
 
-/**
- * Build context string from attached files
- */
 function buildFileContext(files: Array<{ name: string; content: string }>): string {
   if (!files || files.length === 0) return '';
 
-  const MAX_TOTAL_CHARS = 30000; // ~30k chars max for context
+  const MAX_TOTAL_CHARS = 30000;
   let context = '';
   let totalChars = 0;
 
@@ -260,67 +197,9 @@ function buildFileContext(files: Array<{ name: string; content: string }>): stri
   return context;
 }
 
-/**
- * Main orchestrator - processes through the multi-agent system
- * Enhanced with chain-of-thought and auto-chain mode
- */
-export async function* processMessage(
-  userMessage: string,
-  conversationHistory: Message[],
-  activeAgentOverride?: AgentRole,
-  attachedFiles?: Array<{ name: string; content: string }>,
-  toolContext?: string
-): AsyncGenerator<StreamChunk> {
-  const { role: selectedRole, confidence } = classifyIntent(userMessage);
-  const activeRole = activeAgentOverride || selectedRole;
-  const agent = AGENT_DEFINITIONS[activeRole];
-
-  // Build file context if files are attached
-  const fileContext = buildFileContext(attachedFiles || []);
-
-  // Check if we should chain multiple agents
-  const chainDecision = shouldChain(userMessage, attachedFiles?.length || 0);
-  
-  if (chainDecision.should && chainDecision.chain.length > 1 && !activeAgentOverride) {
-    // Auto-chain mode: process through multiple agents
-    yield* processAutoChain(userMessage, conversationHistory, chainDecision.chain, fileContext);
-    return;
-  }
-
-  // If files are attached and no override, start with analyzer
-  const effectiveRole = (!activeAgentOverride && chainDecision.should && chainDecision.chain.length === 1)
-    ? chainDecision.chain[0].agent
-    : activeRole;
-
-  const effectiveAgent = AGENT_DEFINITIONS[effectiveRole];
-
-  yield {
-    type: 'agent_switch',
-    agentId: effectiveAgent.id,
-    agentName: effectiveAgent.name,
-    agentColor: effectiveAgent.color,
-    agentRole: effectiveAgent.role,
-    content: `🤖 ${effectiveAgent.name} đang xử lý...`,
-  };
-
-  // Chain-of-thought: think step-by-step before generating
-  if (effectiveRole !== 'orchestrator' || confidence < 0.7) {
-    yield* generateChainOfThought(effectiveRole, userMessage, fileContext);
-  }
-
-  const systemPrompt = effectiveAgent.systemPrompt;
-  const messages = buildMessages(systemPrompt, conversationHistory, userMessage, fileContext, toolContext);
-
-  yield* generateResponse(effectiveAgent, messages);
-}
-
 // =============================================
-// Sandbox Tool Execution Helpers
+// Sandbox Tool Execution
 // =============================================
-
-/**
- * Execute a sandbox tool (write file, run command, read file, etc.)
- */
 async function executeSandboxTool(
   sessionId: string,
   action: string,
@@ -339,24 +218,13 @@ async function executeSandboxTool(
   }
 
   const data = await response.json();
-  if (action === 'exec') {
-    return data.output || '(no output)';
-  }
-  if (action === 'read') {
-    return data.content || '';
-  }
-  if (action === 'write') {
-    return `File written: ${data.path}`;
-  }
-  if (action === 'edit') {
-    return `${data.changesApplied} edit(s) applied`;
-  }
-  if (action === 'delete') {
-    return 'Deleted successfully';
-  }
-  if (action === 'mkdir') {
-    return 'Directory created';
-  }
+  if (action === 'exec') return data.output || '(no output)';
+  if (action === 'read') return data.content || '';
+  if (action === 'write') return `File written: ${data.path}`;
+  if (action === 'edit') return `${data.changesApplied} edit(s) applied`;
+  if (action === 'delete') return 'Deleted successfully';
+  if (action === 'mkdir') return 'Directory created';
+  if (action === 'list') return JSON.stringify(data.files || data, null, 2);
   return JSON.stringify(data);
 }
 
@@ -403,9 +271,115 @@ function detectToolPatterns(fullResponse: string): Array<{
 }
 
 /**
- * Main entry point with sandbox tool support
- * Wraps processMessage and auto-executes detected tools
+ * Remove tool code blocks from response for clean display
  */
+function cleanToolBlocksFromResponse(fullResponse: string): string {
+  let cleaned = fullResponse;
+  // Remove ```file:path\n...\n``` blocks
+  cleaned = cleaned.replace(/```file:.+?\n[\s\S]*?```/g, '');
+  // Remove ```terminal\n...\n``` and ```bash\n...\n``` blocks
+  cleaned = cleaned.replace(/```(?:terminal|bash)\n[\s\S]*?```/g, '');
+  // Clean up extra whitespace
+  cleaned = cleaned.replace(/\n{3,}/g, '\n\n').trim();
+  return cleaned;
+}
+
+// =============================================
+// Core: Generate LLM response (streaming)
+// =============================================
+async function* generateResponse(
+  agent: typeof AGENT_DEFINITIONS[AgentRole],
+  messages: OllamaMessage[],
+  maxTokens?: number
+): AsyncGenerator<StreamChunk> {
+  try {
+    const ollama = getOllamaClient();
+    const stream = ollama.chatStream(messages);
+
+    let fullContent = '';
+
+    for await (const chunk of stream) {
+      if (chunk.response) {
+        fullContent += chunk.response;
+        yield {
+          type: 'token',
+          content: chunk.response,
+          agentId: agent.id,
+          agentName: agent.name,
+          agentColor: agent.color,
+          agentRole: agent.role,
+        };
+      }
+    }
+
+    // Non-streaming fallback
+    if (fullContent.trim().length === 0) {
+      const fallbackResponse = await ollama.chat(messages, {
+        options: { temperature: 0.7, num_predict: maxTokens || 2048 },
+      });
+      fullContent = fallbackResponse.response || '';
+      
+      if (fullContent.trim().length > 0) {
+        yield {
+          type: 'token',
+          content: fullContent,
+          agentId: agent.id,
+          agentName: agent.name,
+          agentColor: agent.color,
+          agentRole: agent.role,
+        };
+      }
+    }
+
+    yield {
+      type: 'done',
+      content: fullContent,
+      agentId: agent.id,
+      agentName: agent.name,
+    };
+  } catch (error) {
+    yield {
+      type: 'error',
+      error: `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`,
+    };
+  }
+}
+
+// =============================================
+// ★ MAIN ENTRY: processMessage (simple, no tools)
+// =============================================
+export async function* processMessage(
+  userMessage: string,
+  conversationHistory: Message[],
+  activeAgentOverride?: AgentRole,
+  attachedFiles?: Array<{ name: string; content: string }>,
+  toolContext?: string
+): AsyncGenerator<StreamChunk> {
+  const { role: selectedRole, confidence } = classifyIntent(userMessage);
+  const activeRole = activeAgentOverride || selectedRole;
+  const agent = AGENT_DEFINITIONS[activeRole];
+  const fileContext = buildFileContext(attachedFiles || []);
+
+  yield {
+    type: 'agent_switch',
+    agentId: agent.id,
+    agentName: agent.name,
+    agentColor: agent.color,
+    agentRole: agent.role,
+    content: `🤖 ${agent.name} đang xử lý...`,
+  };
+
+  const systemPrompt = agent.systemPrompt;
+  const messages = buildMessages(systemPrompt, conversationHistory, userMessage, fileContext, toolContext);
+
+  yield* generateResponse(agent, messages);
+}
+
+// =============================================
+// ★★★ TRUE AGENT LOOP (LIVE) ★★★
+// Think → Act (tools) → Observe (results) → Think → Respond
+// Iterative with max 5 loops, feeds tool results back to LLM
+// =============================================
 export async function* processMessageWithTools(
   userMessage: string,
   conversationHistory: Message[],
@@ -413,114 +387,213 @@ export async function* processMessageWithTools(
   attachedFiles?: Array<{ name: string; content: string }>,
   sessionId?: string,
 ): AsyncGenerator<StreamChunk> {
-  // Build tool context for the system prompt
+  const MAX_AGENT_LOOPS = 5; // Max iterations of think-act-observe
+
+  const { role: selectedRole } = classifyIntent(userMessage);
+  const activeRole = activeAgentOverride || selectedRole;
+  const agent = AGENT_DEFINITIONS[activeRole];
+  const fileContext = buildFileContext(attachedFiles || []);
+
+  // Tool awareness context injected into system prompt
   const toolContext = sessionId
-    ? `\n📌 SESSION INFO: Session ID = ${sessionId.substring(0, 8)}. Mỗi session có workspace riêng.\nBạn có thể tạo file (\`\`\`file:path\`), chạy lệnh (\`\`\`terminal\`), và quản lý workspace.`
+    ? `\n📌 LIVE AGENT MODE - Bạn là agent LIVE với quyền thực thi trực tiếp:\n` +
+      `Session ID: ${sessionId.substring(0, 8)}. Mỗi session có workspace sandbox riêng.\n\n` +
+      `🛠️ TOOLS THỰC THI TRỰC TIẾP (TỰ ĐỘNG executed):\n` +
+      `1. TẠO FILE → Viết code block: \`\`\`file:tên_file.ts\n// code ở đây\n\`\`\`\n` +
+      `2. CHẠY LỆNH TERMINAL → Viết: \`\`\`terminal\nlệnh ở đây\n\`\`\`\n` +
+      `3. ĐỌC FILE → Viết: \`\`\`terminal\ncat đường_dẫn_file\n\`\`\`\n\n` +
+      `⚠️ QUAN TRỌNG - HÀNH ĐỘNG THỰC TẾ:\n` +
+      `- Khi bạn viết \`\`\`file:...\`\`\` hoặc \`\`\`terminal\`\`\`, nó SẼ ĐƯỢC THỰC THI NGAY!\n` +
+      `- Sau khi thực thi, bạn sẽ NHẬN KẾT QUẢ và có thể tiếp tục hành động.\n` +
+      `- Đừng chỉ mô tả - hãy THỰC THI rồi báo cáo kết quả!\n` +
+      `- Nếu lệnh thất bại, thử cách khác. Đừng bỏ cuộc.\n` +
+      `- Giới hạn: tối đa ${MAX_AGENT_LOOPS} vòng lặp hành động.`
     : '';
 
-  // If we have a sessionId, enhance the user message with sandbox context
-  let enhancedMessage = userMessage;
-  if (sessionId) {
-    enhancedMessage = userMessage;
-  }
+  // Switch to agent
+  yield {
+    type: 'agent_switch',
+    agentId: agent.id,
+    agentName: agent.name,
+    agentColor: agent.color,
+    agentRole: agent.role,
+    content: `🤖 ${agent.name} (Live Agent) đang xử lý...`,
+  };
 
-  // Run the normal processMessage pipeline
-  let fullResponse = '';
-  const generator = processMessage(enhancedMessage, conversationHistory, activeAgentOverride, attachedFiles, toolContext);
+  // ========== AGENT LOOP ==========
+  const loopHistory: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  let finalResponse = '';
+  let allToolResults: string[] = [];
+  let loopCount = 0;
 
-  for await (const chunk of generator) {
-    yield chunk;
-    if (chunk.type === 'token' && chunk.content) {
-      fullResponse += chunk.content;
+  for (loopCount = 0; loopCount < MAX_AGENT_LOOPS; loopCount++) {
+    // Build the prompt for this loop iteration
+    let loopContext = '';
+
+    if (loopCount === 0) {
+      // First loop: just the user message with file context
+      loopContext = '';
+    } else {
+      // Subsequent loops: include previous tool results
+      loopContext = `\n\n--- KẾT QUẢ HÀNH ĐỘNG (Vòng ${loopCount}) ---\n`;
+      loopContext += `Bạn vừa thực hiện các hành động. Đây là kết quả:\n\n`;
+
+      if (allToolResults.length > 0) {
+        allToolResults.forEach((result, i) => {
+          loopContext += `[Tool ${i + 1} Result]:\n${result}\n\n`;
+        });
+      }
+
+      loopContext += `--- KẾT THÚC KẾT QUẢ ---\n\n`;
+      loopContext += `QUAN TRỌNG:\n`;
+      loopContext += `- Nếu kết quả cho thấy thành công → Hãy tổng hợp và trả lời người dùng.\n`;
+      loopContext += `- Nếu kết quả cho thấy lỗi → Thử cách khác (sửa lệnh, đổi path, v.v.).\n`;
+      loopContext += `- Nếu cần thêm hành động → Tiếp tục dùng \`\`\`file:...\`\`\` hoặc \`\`\`terminal\`\`\`.\n`;
+      loopContext += `- Nếu đã hoàn thành → Trả lời người dùng bằng ngôn ngữ họ dùng.\n`;
+      loopContext += `- KHÔNG viết lại tool call cũ đã thực thi.\n`;
     }
-    if (chunk.type === 'done' && chunk.content) {
-      fullResponse = chunk.content;
+
+    // Build messages for this loop
+    const messages = buildMessages(
+      agent.systemPrompt,
+      conversationHistory,
+      userMessage,
+      fileContext,
+      toolContext + loopContext,
+      loopHistory.length > 0 ? loopHistory : undefined
+    );
+
+    // Generate response (streaming)
+    let loopResponse = '';
+    for await (const chunk of generateResponse(agent, messages)) {
+      yield chunk;
+      if (chunk.type === 'token' && chunk.content) {
+        loopResponse += chunk.content;
+      }
+      if (chunk.type === 'done' && chunk.content) {
+        loopResponse = chunk.content;
+      }
     }
-  }
 
-  // After agent finishes, scan for tool patterns and execute them
-  if (sessionId && fullResponse.length > 0) {
-    const detectedTools = detectToolPatterns(fullResponse);
+    // If no sessionId, just return (no tool execution possible)
+    if (!sessionId) {
+      finalResponse = loopResponse;
+      break;
+    }
 
-    if (detectedTools.length > 0) {
+    // Detect tools in this loop's response
+    const detectedTools = detectToolPatterns(loopResponse);
+
+    if (detectedTools.length === 0) {
+      // No tools detected - this is the final response
+      finalResponse = loopResponse;
+      break;
+    }
+
+    // === TOOLS DETECTED - EXECUTE THEM ===
+    const loopLabel = loopCount === 0 ? 'Agent phát hiện' : `Vòng ${loopCount + 1} - Agent tiếp tục`;
+    yield {
+      type: 'thinking',
+      content: `🔧 ${loopLabel} ${detectedTools.length} hành động, đang thực thi...`,
+    };
+
+    allToolResults = [];
+
+    for (const tool of detectedTools) {
+      // Yield tool_call event
       yield {
-        type: 'thinking',
-        content: `🔧 Phát hiện ${detectedTools.length} tool call(s), đang thực thi...`,
+        type: 'tool_call',
+        content: `${tool.toolName}: ${JSON.stringify(tool.args).substring(0, 100)}`,
+        toolCall: {
+          id: tool.id,
+          name: tool.toolName,
+          arguments: tool.args,
+        },
       };
 
-      for (const tool of detectedTools) {
-        // Yield tool_call
+      try {
+        let action: string;
+        let args: Record<string, unknown>;
+
+        switch (tool.toolName) {
+          case 'write_file':
+            action = 'write';
+            args = { path: tool.args.path, content: tool.args.content };
+            break;
+          case 'exec_command':
+            action = 'exec';
+            args = { command: tool.args.command };
+            break;
+          default:
+            action = 'exec';
+            args = { command: tool.args.command || '' };
+        }
+
+        const result = await executeSandboxTool(sessionId, action, args);
+        allToolResults.push(result);
+
+        // Yield tool_result event
         yield {
-          type: 'tool_call',
-          content: `${tool.toolName}: ${JSON.stringify(tool.args).substring(0, 100)}`,
+          type: 'tool_result',
+          content: result.substring(0, 500),
           toolCall: {
             id: tool.id,
             name: tool.toolName,
             arguments: tool.args,
+            result: result.substring(0, 2000),
           },
         };
-
-        try {
-          let action: string;
-          let args: Record<string, unknown>;
-
-          switch (tool.toolName) {
-            case 'write_file':
-              action = 'write';
-              args = { path: tool.args.path, content: tool.args.content };
-              break;
-            case 'exec_command':
-              action = 'exec';
-              args = { command: tool.args.command };
-              break;
-            default:
-              action = 'exec';
-              args = { command: tool.args.command || '' };
-          }
-
-          const result = await executeSandboxTool(sessionId, action, args);
-
-          // Yield tool_result
-          yield {
-            type: 'tool_result',
-            content: result.substring(0, 500),
-            toolCall: {
-              id: tool.id,
-              name: tool.toolName,
-              arguments: tool.args,
-              result: result.substring(0, 2000),
-            },
-          };
-        } catch (error) {
-          yield {
-            type: 'tool_result',
-            content: `Tool error: ${error instanceof Error ? error.message : 'Unknown'}`,
-            toolCall: {
-              id: tool.id,
-              name: tool.toolName,
-              arguments: tool.args,
-              result: `Error: ${error instanceof Error ? error.message : 'Unknown'}`,
-            },
-          };
-        }
+      } catch (error) {
+        const errorMsg = `Tool error: ${error instanceof Error ? error.message : 'Unknown'}`;
+        allToolResults.push(errorMsg);
+        yield {
+          type: 'tool_result',
+          content: errorMsg,
+          toolCall: {
+            id: tool.id,
+            name: tool.toolName,
+            arguments: tool.args,
+            result: errorMsg,
+          },
+        };
       }
-
-      yield {
-        type: 'done',
-        content: fullResponse,
-      };
     }
+
+    // Store this loop's response + tool results for the next iteration context
+    loopHistory.push({ role: 'assistant', content: loopResponse });
+    loopHistory.push({
+      role: 'user',
+      content: `Kết quả thực thi:\n${allToolResults.map((r, i) => `[Tool ${i + 1}]: ${r.substring(0, 1000)}`).join('\n\n')}\n\nHãy xem xét kết quả và tiếp tục hoặc trả lời.`
+    });
+
+    finalResponse = loopResponse;
   }
+
+  // If we hit max loops, indicate that
+  if (loopCount >= MAX_AGENT_LOOPS && sessionId) {
+    yield {
+      type: 'thinking',
+      content: `⚠️ Đạt giới hạn ${MAX_AGENT_LOOPS} vòng hành động. Đang tổng hợp kết quả cuối...`,
+    };
+  }
+
+  // Yield final done with cleaned response (without tool code blocks)
+  const cleanedFinal = cleanToolBlocksFromResponse(finalResponse);
+  yield {
+    type: 'done',
+    content: cleanedFinal || finalResponse,
+  };
 }
 
-/**
- * Auto-chain mode: process through multiple agents in sequence
- */
+// =============================================
+// Auto-Chain Mode (for multi-agent tasks)
+// =============================================
 async function* processAutoChain(
   userMessage: string,
   conversationHistory: Message[],
   chain: Array<{ agent: AgentRole; purpose: string }>,
-  fileContext: string
+  fileContext: string,
+  sessionId?: string
 ): AsyncGenerator<StreamChunk> {
   yield {
     type: 'chain_start',
@@ -559,7 +632,6 @@ async function* processAutoChain(
       content: `🤖 ${stepAgent.name} đang xử lý bước ${i + 1}/${chain.length}...`,
     };
 
-    // Build context with previous output for chaining
     let chainContext = '';
     if (previousOutput) {
       chainContext = `\n\n--- KẾT QUẢ TỪ BƯỚC TRƯỚC (${AGENT_DEFINITIONS[chain[i - 1]?.agent]?.name || 'Agent'}) ---\n${previousOutput}\n--- KẾT THÚC KẾT QUẢ ---`;
@@ -568,11 +640,10 @@ async function* processAutoChain(
     const fullContext = fileContext + chainContext;
     const messages = buildMessages(stepAgent.systemPrompt, conversationHistory, userMessage, fullContext);
 
-    // Generate response for this step
-    const ollama = getOllamaClient();
     let fullContent = '';
 
     try {
+      const ollama = getOllamaClient();
       const stream = ollama.chatStream(messages);
 
       for await (const chunk of stream) {
@@ -589,7 +660,6 @@ async function* processAutoChain(
         }
       }
 
-      // Fallback if streaming returns empty
       if (fullContent.trim().length === 0) {
         const fallbackResponse = await ollama.chat(messages, {
           options: { temperature: 0.7, num_predict: 1024 },
@@ -614,7 +684,6 @@ async function* processAutoChain(
       };
     }
 
-    // Store output for next agent in chain
     previousOutput = fullContent;
   }
 
@@ -622,125 +691,6 @@ async function* processAutoChain(
     type: 'done',
     content: '',
   };
-}
-
-/**
- * Generate chain-of-thought reasoning before the main response
- */
-async function* generateChainOfThought(
-  role: AgentRole,
-  userMessage: string,
-  fileContext: string
-): AsyncGenerator<StreamChunk> {
-  const orchestrator = AGENT_DEFINITIONS.orchestrator;
-
-  const planMessages: OllamaMessage[] = [
-    {
-      role: 'system',
-      content: `${orchestrator.systemPrompt}\n\nBạn đang hỗ trợ ${AGENT_DEFINITIONS[role].name}. 
-Người dùng hỏi: "${userMessage}"
-${fileContext ? `Có ${fileContext.split('===').length / 2} file đính kèm.` : ''}
-
-Tạo execution plan ngắn gọn (2-3 câu) cho ${AGENT_DEFINITIONS[role].name}. 
-Suy nghĩ step-by-step. Chỉ trả về plan, không trả lời câu hỏi.`,
-    },
-    { role: 'user', content: `Tạo execution plan cho ${AGENT_DEFINITIONS[role].name}` },
-  ];
-
-  try {
-    const ollama = getOllamaClient();
-    const planResponse = await ollama.chat(planMessages, {
-      options: { temperature: 0.3, num_predict: 300 },
-    });
-
-    if (planResponse.response && planResponse.response.trim().length > 0) {
-      yield {
-        type: 'thinking',
-        content: `💭 ${AGENT_DEFINITIONS[role].icon} ${AGENT_DEFINITIONS[role].name} suy nghĩ:\n${planResponse.response}`,
-        agentId: orchestrator.id,
-        agentName: orchestrator.name,
-      };
-    }
-  } catch {
-    // Skip thinking if it fails
-  }
-}
-
-/**
- * Generate response from an agent
- */
-async function* generateResponse(
-  agent: typeof AGENT_DEFINITIONS[AgentRole],
-  messages: OllamaMessage[]
-): AsyncGenerator<StreamChunk> {
-  try {
-    const ollama = getOllamaClient();
-    const stream = ollama.chatStream(messages);
-
-    let fullContent = '';
-    let tokenCount = 0;
-
-    for await (const chunk of stream) {
-      if (chunk.response) {
-        fullContent += chunk.response;
-        tokenCount++;
-        yield {
-          type: 'token',
-          content: chunk.response,
-          agentId: agent.id,
-          agentName: agent.name,
-          agentColor: agent.color,
-          agentRole: agent.role,
-        };
-      }
-    }
-
-    // If no tokens received, try non-streaming as fallback
-    if (fullContent.trim().length === 0) {
-      console.log('[Orchestrator] Streaming returned empty, trying non-streaming fallback...');
-      yield {
-        type: 'thinking',
-        content: 'Đang thử phương thức khác...',
-        agentId: agent.id,
-        agentName: agent.name,
-      };
-
-      const fallbackResponse = await ollama.chat(messages, {
-        options: { temperature: 0.7, num_predict: 1024 },
-      });
-      fullContent = fallbackResponse.response || '';
-      
-      if (fullContent.trim().length > 0) {
-        yield {
-          type: 'token',
-          content: fullContent,
-          agentId: agent.id,
-          agentName: agent.name,
-          agentColor: agent.color,
-          agentRole: agent.role,
-        };
-      }
-    }
-
-    if (fullContent.trim().length === 0) {
-      yield {
-        type: 'error',
-        error: 'Model không tạo được nội dung. Có thể do thiếu RAM. Thử reload trang hoặc đổi model nhỏ hơn (gemma4:2b).',
-      };
-    } else {
-      yield {
-        type: 'done',
-        content: fullContent,
-        agentId: agent.id,
-        agentName: agent.name,
-      };
-    }
-  } catch (error) {
-    yield {
-      type: 'error',
-      error: `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    };
-  }
 }
 
 export { classifyIntent, buildMessages, buildFileContext };
