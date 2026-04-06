@@ -15,10 +15,10 @@ on:
       model:
         description: 'Ollama model to use'
         required: false
-        default: 'gemma3:4b'
+        default: 'gemma4:e4b'
         type: choice
         options:
-          - gemma3:1b
+          - gemma4:e4b
           - gemma3:4b
           - gemma3:12b
           - gemma3:27b
@@ -28,7 +28,7 @@ env:
   NODE_ENV: production
   PORT: 3000
   OLLAMA_BASE_URL: http://localhost:11434
-  OLLAMA_MODEL: ${{ github.event.inputs.model || 'gemma3:4b' }}
+  OLLAMA_MODEL: ${{ github.event.inputs.model || 'gemma4:e4b' }}
 
 jobs:
   deploy:

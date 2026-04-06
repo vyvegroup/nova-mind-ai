@@ -31,7 +31,7 @@ else
 fi
 
 # Pull model
-MODEL="${OLLAMA_MODEL:-gemma3:4b}"
+MODEL="${OLLAMA_MODEL:-gemma4:e4b}"
 echo ""
 echo "🧠 Pulling model: $MODEL"
 echo "   (This may take a few minutes on first run)"

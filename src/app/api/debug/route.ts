@@ -35,7 +35,7 @@ export async function GET() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL || 'gemma3:1b',
+        model: process.env.OLLAMA_MODEL || 'gemma4:e4b',
         prompt: 'Say hello',
         stream: false,
         options: { num_predict: 50 },
@@ -60,7 +60,7 @@ export async function GET() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: process.env.OLLAMA_MODEL || 'gemma3:1b',
+        model: process.env.OLLAMA_MODEL || 'gemma4:e4b',
         messages: [{ role: 'user', content: 'Say hello' }],
         stream: false,
         options: { num_predict: 50 },
