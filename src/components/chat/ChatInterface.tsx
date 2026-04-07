@@ -2569,11 +2569,26 @@ export default function ChatInterface() {
         body: JSON.stringify({ action: 'tts', text }),
       });
       const data = await res.json();
-      if (data.audio) {
-        const audio = new Audio(`data:audio/mp3;base64,${data.audio}`);
-        audio.play();
+      if (data.success && data.audio) {
+        // Handle both raw base64 and JSON-wrapped responses
+        let audioSrc = data.audio;
+        if (audioSrc.startsWith('data:')) {
+          // Already a data URL
+        } else if (audioSrc.startsWith('{') || audioSrc.startsWith('[')) {
+          // JSON response - try to extract audio
+          try {
+            const parsed = JSON.parse(audioSrc);
+            audioSrc = parsed?.audio || parsed?.data || parsed?.url || audioSrc;
+          } catch {}
+        }
+        const audio = new Audio(audioSrc.startsWith('data:') ? audioSrc : `data:audio/mp3;base64,${audioSrc}`);
+        audio.play().catch(e => console.error('Audio play error:', e));
+      } else {
+        console.warn('TTS failed:', data.error || 'No audio data');
       }
-    } catch { /* error */ }
+    } catch (err) {
+      console.error('TTS error:', err);
+    }
   }, []);
 
   // Image generation
@@ -2598,13 +2613,27 @@ export default function ChatInterface() {
             body: JSON.stringify({ prompt: imgPrompt }),
           });
           const data = await res.json();
-          if (data.success && data.image) {
+          if (data.success && (data.image || data.url)) {
             addUserMessage(`[Hình ảnh] ${imgPrompt}`);
             addAssistantMessage('', selectedAgent, AGENT_DEFINITIONS[selectedAgent].name, AGENT_DEFINITIONS[selectedAgent].color, selectedAgent);
-            updateLastMessage(`![Generated Image](data:image/png;base64,${data.image})`);
+            if (data.image) {
+              updateLastMessage(`![Generated Image](data:image/png;base64,${data.image})`);
+            } else if (data.url) {
+              updateLastMessage(`![Generated Image](${data.url})`);
+            }
+            setLastMessageComplete();
+          } else {
+            addUserMessage(`[Hình ảnh] ${imgPrompt}`);
+            addAssistantMessage('', selectedAgent, AGENT_DEFINITIONS[selectedAgent].name, AGENT_DEFINITIONS[selectedAgent].color, selectedAgent);
+            updateLastMessage(`❌ Tạo hình ảnh thất bại: ${data.error || 'Unknown error'}`);
             setLastMessageComplete();
           }
-        } catch { /* error */ }
+        } catch (err) {
+          addUserMessage(`[Hình ảnh] ${imgPrompt}`);
+          addAssistantMessage('', selectedAgent, AGENT_DEFINITIONS[selectedAgent].name, AGENT_DEFINITIONS[selectedAgent].color, selectedAgent);
+          updateLastMessage(`❌ Lỗi tạo hình ảnh: ${err instanceof Error ? err.message : 'Unknown'}`);
+          setLastMessageComplete();
+        }
         finally { setGeneratingImage(false); }
       }
       return;
@@ -2617,6 +2646,20 @@ export default function ChatInterface() {
     setIsGenerating(true);
     clearFiles();
 
+    // Timeout: abort if no connection in 30s
+    const controller = new AbortController();
+    const connectTimeout = setTimeout(() => {
+      controller.abort();
+    }, 30000);
+    let receivedAnyData = false;
+    let lastDataTime = Date.now();
+    // Timeout: abort if no data for 45s
+    const dataTimeoutId = setInterval(() => {
+      if (receivedAnyData && Date.now() - lastDataTime > 45000) {
+        controller.abort();
+      }
+    }, 5000);
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -2628,9 +2671,15 @@ export default function ChatInterface() {
           files: messageFiles?.map((f) => ({ name: f.name, content: f.content })),
           sessionId: session?.id,
         }),
+        signal: controller.signal,
       });
 
-      if (!res.ok || !res.body) throw new Error('Failed to connect');
+      clearTimeout(connectTimeout);
+
+      if (!res.ok || !res.body) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errBody || 'No response body'}`);
+      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -2639,6 +2688,8 @@ export default function ChatInterface() {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        receivedAnyData = true;
+        lastDataTime = Date.now();
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
@@ -2661,18 +2712,30 @@ export default function ChatInterface() {
               case 'token': if (chunk.content) updateLastMessage(chunk.content); break;
               case 'tool_call': if (chunk.content) addThinkingToLastMessage(`🔧 Tool Call: ${chunk.content}`); break;
               case 'tool_result': if (chunk.content) addThinkingToLastMessage(`✅ Tool Result: ${chunk.content}`); break;
-              case 'error': if (chunk.error) updateLastMessage(`\n\n❌ ${chunk.error}`); break;
+              case 'error': 
+                if (chunk.error) updateLastMessage(`\n\n❌ ${chunk.error}`);
+                break;
               case 'done': break;
               case 'chain_start': case 'chain_step': if (chunk.content) addThinkingToLastMessage(chunk.content); break;
             }
-          } catch { /* skip */ }
+          } catch { /* skip malformed chunks */ }
         }
       }
       setLastMessageComplete();
-    } catch (err) {
-      updateLastMessage(`\n\n❌ Lỗi kết nối: ${err instanceof Error ? err.message : 'Unknown'}`);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        if (!receivedAnyData) {
+          updateLastMessage('\n\n⏰ Model phản hồi quá chậm (>30s). Kiểm tra lại kết nối hoặc thử lại sau.');
+        } else {
+          updateLastMessage('\n\n⏰ Quá thời gian chờ dữ liệu. Model có thể đang xử lý quá lâu.');
+        }
+      } else {
+        updateLastMessage(`\n\n❌ Lỗi kết nối: ${err instanceof Error ? err.message : 'Unknown'}`);
+      }
       setLastMessageComplete();
     } finally {
+      clearTimeout(connectTimeout);
+      clearInterval(dataTimeoutId);
       setIsGenerating(false);
     }
   }, [input, attachedFiles, isGenerating, selectedAgent, messages, session?.id, addUserMessage, addAssistantMessage, clearFiles, updateLastMessage, setLastMessageComplete, setLastMessageAgent, addThinkingToLastMessage, setIsGenerating]);
