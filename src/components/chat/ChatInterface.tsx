@@ -19,7 +19,7 @@ import {
   Upload, Download, Save, Wrench, Copy, Check, PanelRight,
   FilePlus, ArrowUpCircle, Info, Cpu, Database,
   Download as ModelDownload, ImageIcon, Mic, Volume2, ChevronDown,
-  FolderPlus, ChevronRight
+  FolderPlus, ChevronRight, Phone, PhoneOff, Speaker, Trash, MicOff
 } from 'lucide-react';
 import { useChatStore } from '@/store/chat-store';
 import { AGENT_DEFINITIONS, type AgentRole, type Message, type StreamChunk, type AttachedFile } from '@/lib/types';
@@ -149,6 +149,7 @@ function FlatHeader({
   isDark,
   onThemeToggle,
   onImageGenClick,
+  onVoiceCallClick,
 }: {
   onMenuClick: () => void;
   onWorkspaceToggle: () => void;
@@ -157,6 +158,7 @@ function FlatHeader({
   isDark: boolean;
   onThemeToggle: () => void;
   onImageGenClick: () => void;
+  onVoiceCallClick: () => void;
 }) {
   const { modelStatus, modelMessage } = useChatStore();
 
@@ -205,6 +207,14 @@ function FlatHeader({
             title="Tạo ảnh"
           >
             <ImageIcon size={18} className="text-neutral-500" />
+          </button>
+          <button
+            onClick={onVoiceCallClick}
+            className="p-2.5 rounded-xl hover:bg-neutral-800 transition-all active:scale-95"
+            style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
+            title="Cuộc gọi thoại AI"
+          >
+            <Phone size={18} className="text-neutral-500" />
           </button>
           <button
             onClick={onModelFinderToggle}
@@ -1605,6 +1615,797 @@ function FileChip({ file, onRemove }: { file: AttachedFile; onRemove: () => void
 }
 
 // =============================================
+// ImageGenPanel - Slide-in Image Generation
+// =============================================
+interface GeneratedImage {
+  prompt: string;
+  image: string;
+  size: string;
+  timestamp: number;
+}
+
+const IMAGE_SIZES = [
+  { value: '1024x1024', label: '1:1 Vuông', w: 1024, h: 1024 },
+  { value: '768x1344', label: '9:16 Dọc', w: 768, h: 1344 },
+  { value: '1344x768', label: '16:9 Ngang', w: 1344, h: 768 },
+];
+
+const IMAGE_STYLES = [
+  'Photorealistic', 'Anime', 'Digital Art', 'Oil Painting', 'Watercolor', 'Pixel Art', '3D Render',
+];
+
+function ImageGenPanel({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [prompt, setPrompt] = useState('');
+  const [selectedSize, setSelectedSize] = useState('1024x1024');
+  const [selectedStyle, setSelectedStyle] = useState('Photorealistic');
+  const [loading, setLoading] = useState(false);
+  const [gallery, setGallery] = useState<GeneratedImage[]>([]);
+  const [viewingImage, setViewingImage] = useState<GeneratedImage | null>(null);
+
+  const handleGenerate = async () => {
+    if (!prompt.trim() || loading) return;
+    setLoading(true);
+    try {
+      const fullPrompt = `${prompt.trim()}, ${selectedStyle} style`;
+      const res = await fetch('/api/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: fullPrompt, size: selectedSize }),
+      });
+      const data = await res.json();
+      if (data.success && data.image) {
+        const newImage: GeneratedImage = {
+          prompt: prompt.trim(),
+          image: data.image,
+          size: selectedSize,
+          timestamp: Date.now(),
+        };
+        setGallery(prev => [newImage, ...prev]);
+      }
+    } catch {
+      // error
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = (img: GeneratedImage) => {
+    const link = document.createElement('a');
+    link.href = `data:image/png;base64,${img.image}`;
+    link.download = `venai-${img.timestamp}.png`;
+    link.click();
+  };
+
+  const handleDelete = (index: number) => {
+    setGallery(prev => prev.filter((_, i) => i !== index));
+  };
+
+  return (
+    <>
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+              onClick={onClose}
+            />
+
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 28, stiffness: 220 }}
+              className="fixed right-0 top-0 bottom-0 z-50 w-full sm:w-[420px] flat-panel flex flex-col"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-700/50 shrink-0">
+                <div className="flex items-center gap-2">
+                  <ImageIcon size={16} className="text-neutral-400" />
+                  <span className="text-sm font-medium text-neutral-200">Tạo ảnh AI</span>
+                </div>
+                <button
+                  onClick={onClose}
+                  className="p-2 rounded-xl hover:bg-neutral-800 transition-all active:scale-95 text-neutral-500 hover:text-neutral-300"
+                  style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto panel-scroll p-4 space-y-4">
+                {/* Prompt input */}
+                <div>
+                  <label className="block text-[11px] text-neutral-500 font-medium mb-1.5">Mô tả ảnh</label>
+                  <textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="Mô tả ảnh bạn muốn tạo..."
+                    rows={3}
+                    className="w-full bg-neutral-800/50 border border-neutral-700/50 rounded-xl px-3 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-neutral-600/50 transition-all resize-none"
+                    style={{ touchAction: 'manipulation' }}
+                  />
+                </div>
+
+                {/* Size selector */}
+                <div>
+                  <label className="block text-[11px] text-neutral-500 font-medium mb-1.5">Kích thước</label>
+                  <div className="flex gap-2">
+                    {IMAGE_SIZES.map((s) => (
+                      <button
+                        key={s.value}
+                        onClick={() => setSelectedSize(s.value)}
+                        className={`flex-1 flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl text-xs font-medium transition-all border ${
+                          selectedSize === s.value
+                            ? 'bg-neutral-700/50 border-neutral-600/50 text-neutral-200'
+                            : 'bg-neutral-800/30 border-neutral-700/50 text-neutral-500 hover:border-neutral-600/50'
+                        }`}
+                        style={{ touchAction: 'manipulation', minHeight: '44px' }}
+                      >
+                        <div
+                          className="border-2 rounded-sm"
+                          style={{
+                            width: `${Math.min(28, s.w / 50)}px`,
+                            height: `${Math.min(28, s.h / 50)}px`,
+                            borderColor: selectedSize === s.value ? '#a3a3a3' : '#525252',
+                          }}
+                        />
+                        <span>{s.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Style selector */}
+                <div>
+                  <label className="block text-[11px] text-neutral-500 font-medium mb-1.5">Phong cách</label>
+                  <div className="flex flex-wrap gap-2">
+                    {IMAGE_STYLES.map((style) => (
+                      <button
+                        key={style}
+                        onClick={() => setSelectedStyle(style)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all border ${
+                          selectedStyle === style
+                            ? 'bg-neutral-700/50 border-neutral-600/50 text-neutral-200'
+                            : 'bg-neutral-800/30 border-neutral-700/50 text-neutral-500 hover:border-neutral-600/50 hover:text-neutral-300'
+                        }`}
+                        style={{ touchAction: 'manipulation', minHeight: '32px' }}
+                      >
+                        {style}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Generate button */}
+                <button
+                  onClick={handleGenerate}
+                  disabled={!prompt.trim() || loading}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-neutral-600 hover:bg-neutral-500 disabled:bg-neutral-800 disabled:text-neutral-600 text-white text-sm font-medium transition-all active:scale-[0.98]"
+                  style={{ touchAction: 'manipulation', minHeight: '44px' }}
+                >
+                  {loading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Đang tạo...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={16} />
+                      <span>Tạo ảnh</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Gallery */}
+                {gallery.length > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-[11px] text-neutral-500 font-medium">Đã tạo ({gallery.length})</label>
+                    </div>
+                    <div className="space-y-3 max-h-[400px] overflow-y-auto panel-scroll">
+                      {gallery.map((img, idx) => (
+                        <motion.div
+                          key={img.timestamp}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="rounded-xl border border-neutral-700/50 bg-neutral-800/50 overflow-hidden"
+                        >
+                          {/* Thumbnail */}
+                          <div
+                            className="cursor-pointer relative group"
+                            onClick={() => setViewingImage(img)}
+                            style={{ touchAction: 'manipulation' }}
+                          >
+                            <img
+                              src={`data:image/png;base64,${img.image}`}
+                              alt={img.prompt}
+                              className="w-full h-auto object-cover max-h-[200px]"
+                            />
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                              <Eye size={24} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </div>
+                          </div>
+                          {/* Info & actions */}
+                          <div className="px-3 py-2.5 flex items-center justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs text-neutral-300 truncate">{img.prompt}</p>
+                              <p className="text-[10px] text-neutral-600 mt-0.5">
+                                {img.size} • {new Date(img.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => handleDownload(img)}
+                                className="p-2 rounded-lg hover:bg-neutral-700/50 text-neutral-500 hover:text-neutral-300 transition-all active:scale-90"
+                                style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}
+                                title="Tải về"
+                              >
+                                <Download size={14} />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(idx)}
+                                className="p-2 rounded-lg hover:bg-red-500/10 text-neutral-500 hover:text-red-400 transition-all active:scale-90"
+                                style={{ touchAction: 'manipulation', minHeight: '32px', minWidth: '32px' }}
+                                title="Xóa"
+                              >
+                                <Trash size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty state */}
+                {gallery.length === 0 && !loading && (
+                  <div className="flex flex-col items-center justify-center py-8 text-neutral-600">
+                    <ImageIcon size={40} className="mb-2 opacity-30" />
+                    <p className="text-xs">Chưa có ảnh nào</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Full-size image modal */}
+      <AnimatePresence>
+        {viewingImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4"
+            onClick={() => setViewingImage(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              className="relative max-w-full max-h-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={`data:image/png;base64,${viewingImage.image}`}
+                alt={viewingImage.prompt}
+                className="max-w-full max-h-[85vh] rounded-xl object-contain"
+              />
+              <div className="absolute bottom-0 left-0 right-0 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent rounded-b-xl">
+                <p className="text-sm text-white truncate">{viewingImage.prompt}</p>
+                <p className="text-[11px] text-neutral-400 mt-0.5">{viewingImage.size}</p>
+              </div>
+              <button
+                onClick={() => setViewingImage(null)}
+                className="absolute top-3 right-3 p-2 rounded-xl bg-black/50 text-white hover:bg-black/70 transition-all"
+                style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
+              >
+                <X size={18} />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+// =============================================
+// VoiceCallPanel - Live Voice Call With AI
+// =============================================
+type CallState = 'idle' | 'connecting' | 'active' | 'ended';
+
+interface CallExchange {
+  userText: string;
+  aiText: string;
+  timestamp: number;
+}
+
+function VoiceCallPanel({
+  isOpen,
+  onClose,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+}) {
+  const [callState, setCallState] = useState<CallState>('idle');
+  const [isMuted, setIsMuted] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [callDuration, setCallDuration] = useState(0);
+  const [lastAiResponse, setLastAiResponse] = useState('');
+  const [exchangeHistory, setExchangeHistory] = useState<CallExchange[]>([]);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const isCallActiveRef = useRef(false);
+  const endCallRef = useRef<(() => void) | null>(null);
+
+  // Timer
+  useEffect(() => {
+    if (callState === 'active') {
+      timerRef.current = setInterval(() => {
+        setCallDuration(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [callState]);
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  const cleanupCall = useCallback(() => {
+    isCallActiveRef.current = false;
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (audioContextRef.current) { audioContextRef.current.close().catch(() => {}); audioContextRef.current = null; }
+    setIsListening(false);
+    setIsSpeaking(false);
+  }, []);
+
+  const endCall = useCallback(() => {
+    cleanupCall();
+    setCallState('ended');
+    setTimeout(() => {
+      setCallState('idle');
+      setCallDuration(0);
+      setLastAiResponse('');
+      onClose();
+    }, 2000);
+  }, [cleanupCall, onClose]);
+
+  // Store endCall in ref for use in async loops
+  useEffect(() => {
+    endCallRef.current = endCall;
+  }, [endCall]);
+
+  const processAudioAndLoop = useCallback(async (audioBlob: Blob) => {
+    if (!isCallActiveRef.current) return;
+
+    // STT
+    setIsListening(false);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = (reader.result as string).split(',')[1];
+      if (!base64 || !isCallActiveRef.current) return;
+
+      try {
+        // Transcribe
+        const sttRes = await fetch('/api/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'stt', audio: base64 }),
+        });
+        const sttData = await sttRes.json();
+        const userText = sttData.text?.trim();
+        if (!userText || !isCallActiveRef.current) return;
+
+        // Send to AI
+        const chatRes = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: userText,
+            history: [],
+            sessionId: `voice-${Date.now()}`,
+          }),
+        });
+
+        if (!chatRes.ok || !isCallActiveRef.current) return;
+        const chatData = await chatRes.json();
+        const aiText = chatData.response || chatData.message || 'Xin lỗi, tôi không hiểu.';
+
+        setLastAiResponse(aiText);
+        setExchangeHistory(prev => [...prev.slice(-9), { userText, aiText, timestamp: Date.now() }]);
+
+        // TTS
+        if (!isCallActiveRef.current) return;
+        const ttsRes = await fetch('/api/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'tts', text: aiText }),
+        });
+        const ttsData = await ttsRes.json();
+
+        if (ttsData.audio && isCallActiveRef.current) {
+          setIsSpeaking(true);
+          const audio = new Audio(`data:audio/mp3;base64,${ttsData.audio}`);
+          if (!isSpeakerOn) audio.volume = 0;
+
+          audio.onended = () => {
+            setIsSpeaking(false);
+            // Start listening again after speaking
+            if (isCallActiveRef.current && !isMuted) {
+              startListening();
+            }
+          };
+          audio.onerror = () => {
+            setIsSpeaking(false);
+            if (isCallActiveRef.current && !isMuted) {
+              startListening();
+            }
+          };
+          audio.play().catch(() => {
+            setIsSpeaking(false);
+            if (isCallActiveRef.current && !isMuted) {
+              startListening();
+            }
+          });
+        } else {
+          // No audio, start listening again
+          if (isCallActiveRef.current && !isMuted) {
+            startListening();
+          }
+        }
+      } catch {
+        // Error - try listening again
+        if (isCallActiveRef.current && !isMuted) {
+          setTimeout(() => startListening(), 1000);
+        }
+      }
+    };
+    reader.readAsDataURL(audioBlob);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMuted, isSpeakerOn]);
+
+  const startListening = useCallback(async () => {
+    if (!isCallActiveRef.current || isMuted) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      // Set up analyser for silence detection
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const analyser = audioContext.createAnalyser();
+      analyserRef.current = analyser;
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      analyser.fftSize = 512;
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.start(250); // collect chunks every 250ms
+      setIsListening(true);
+
+      // Silence detection loop
+      const checkSilence = () => {
+        if (!isCallActiveRef.current || !analyserRef.current) return;
+
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((sum, val) => sum + val, 0) / dataArray.length;
+
+        if (average > 15) {
+          // Sound detected, reset silence timer
+          if (silenceTimerRef.current) {
+            clearTimeout(silenceTimerRef.current);
+            silenceTimerRef.current = null;
+          }
+        } else if (!silenceTimerRef.current && audioChunksRef.current.length > 0) {
+          // Silence detected, start silence timer
+          silenceTimerRef.current = setTimeout(() => {
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording' && audioChunksRef.current.length > 0) {
+              mediaRecorderRef.current.stop();
+              const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+              audioChunksRef.current = [];
+              processAudioAndLoop(blob);
+            }
+          }, 1500);
+        }
+
+        if (isCallActiveRef.current) {
+          requestAnimationFrame(checkSilence);
+        }
+      };
+      checkSilence();
+    } catch {
+      // Microphone error
+    }
+  }, [isMuted, processAudioAndLoop]);
+
+  const startCall = useCallback(async () => {
+    setCallState('connecting');
+    setCallDuration(0);
+    setLastAiResponse('');
+    setExchangeHistory([]);
+
+    // Simulate connecting delay
+    await new Promise(r => setTimeout(r, 1200));
+
+    if (!isCallActiveRef.current && callState !== 'ended') {
+      isCallActiveRef.current = true;
+      setCallState('active');
+      // Start listening
+      startListening();
+    }
+  }, [callState, startListening]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isCallActiveRef.current = false;
+      cleanupCall();
+    };
+  }, [cleanupCall]);
+
+  // Waveform bars
+  const waveformBars = 24;
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.3 }}
+          className="fixed inset-0 z-[60] bg-black/95 flex flex-col"
+        >
+          {/* Top bar */}
+          <div className="flex items-center justify-between px-4 py-3 shrink-0" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))' }}>
+            <button
+              onClick={endCall}
+              className="p-2 rounded-xl hover:bg-neutral-800 transition-all text-neutral-500"
+              style={{ touchAction: 'manipulation', minHeight: '44px', minWidth: '44px' }}
+            >
+              <X size={20} />
+            </button>
+            <div className="text-center">
+              <p className="text-sm font-medium text-neutral-200">
+                {callState === 'connecting' ? 'Đang kết nối...' : callState === 'active' ? 'Đang gọi' : callState === 'ended' ? 'Cuộc gọi kết thúc' : 'Cuộc gọi thoại AI'}
+              </p>
+              {callState === 'active' && (
+                <p className="text-xs text-neutral-500 font-mono mt-0.5">{formatDuration(callDuration)}</p>
+              )}
+            </div>
+            <div className="w-[44px]" /> {/* Spacer for centering */}
+          </div>
+
+          {/* Main content */}
+          <div className="flex-1 flex flex-col items-center justify-center px-6 gap-8">
+            {/* Status indicator / waveform */}
+            <div className="flex flex-col items-center gap-6">
+              {callState === 'idle' && (
+                <>
+                  <div className="w-24 h-24 rounded-full bg-neutral-800 border border-neutral-700/50 flex items-center justify-center">
+                    <Phone size={36} className="text-neutral-400" />
+                  </div>
+                  <p className="text-sm text-neutral-500">Nhấn nút gọi để bắt đầu cuộc thoại với AI</p>
+                </>
+              )}
+
+              {callState === 'connecting' && (
+                <>
+                  <div className="w-24 h-24 rounded-full bg-neutral-800 border border-neutral-700/50 flex items-center justify-center animate-pulse">
+                    <div className="w-5 h-5 border-2 border-neutral-500/30 border-t-neutral-400 rounded-full animate-spin" />
+                  </div>
+                  <p className="text-sm text-neutral-400">Đang kết nối...</p>
+                </>
+              )}
+
+              {callState === 'active' && (
+                <>
+                  {/* Pulsing circle */}
+                  <div className="relative">
+                    <div className={`absolute inset-0 rounded-full ${isSpeaking ? 'bg-red-500/20' : 'bg-emerald-500/20'} animate-ping`} style={{ margin: '-16px' }} />
+                    <div className={`w-24 h-24 rounded-full flex items-center justify-center ${
+                      isSpeaking ? 'bg-red-500/30 border-2 border-red-500/50' : 'bg-emerald-500/30 border-2 border-emerald-500/50'
+                    }`}>
+                      <div className="flex items-end gap-[3px] h-10">
+                        {Array.from({ length: waveformBars }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={`w-[3px] rounded-full transition-all ${
+                              isSpeaking
+                                ? 'bg-red-400'
+                                : isListening
+                                  ? 'bg-emerald-400'
+                                  : 'bg-neutral-600'
+                            }`}
+                            style={{
+                              height: `${isSpeaking || isListening
+                                ? 8 + Math.sin((Date.now() / 150) + i * 0.5) * 12 + Math.random() * 8
+                                : 6
+                              }px`,
+                              animation: isSpeaking || isListening ? `waveform-bar 0.${4 + (i % 6)}s ease-in-out ${i * 0.05}s infinite alternate` : 'none',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Status text */}
+                  <div className="text-center">
+                    {isListening && (
+                      <p className="text-sm text-emerald-400 flex items-center gap-1.5">
+                        <Mic size={14} />
+                        Đang nghe...
+                      </p>
+                    )}
+                    {isSpeaking && (
+                      <p className="text-sm text-red-400 flex items-center gap-1.5">
+                        <Volume2 size={14} />
+                        AI đang nói...
+                      </p>
+                    )}
+                    {!isListening && !isSpeaking && (
+                      <p className="text-sm text-neutral-500">Đang chờ...</p>
+                    )}
+                  </div>
+
+                  {/* Last AI response */}
+                  {lastAiResponse && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="max-w-[300px] px-4 py-3 rounded-2xl bg-neutral-800/50 border border-neutral-700/50"
+                    >
+                      <p className="text-xs text-neutral-500 mb-1">AI nói:</p>
+                      <p className="text-sm text-neutral-300 leading-relaxed">{lastAiResponse}</p>
+                    </motion.div>
+                  )}
+                </>
+              )}
+
+              {callState === 'ended' && (
+                <>
+                  <div className="w-24 h-24 rounded-full bg-neutral-800 border border-neutral-700/50 flex items-center justify-center">
+                    <PhoneOff size={36} className="text-red-400" />
+                  </div>
+                  <p className="text-sm text-neutral-500">Cuộc gọi đã kết thúc</p>
+                  <p className="text-xs text-neutral-600 font-mono">{formatDuration(callDuration)}</p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Call history */}
+          {exchangeHistory.length > 0 && (
+            <div className="max-h-[180px] overflow-y-auto panel-scroll px-4 pb-2">
+              <div className="space-y-2">
+                {exchangeHistory.map((ex, i) => (
+                  <div key={i} className="flex flex-col gap-1 px-3 py-2 rounded-xl bg-neutral-900/50 border border-neutral-800/50">
+                    <p className="text-[11px] text-neutral-500">
+                      <span className="text-neutral-300">Bạn:</span> {ex.userText}
+                    </p>
+                    <p className="text-[11px] text-neutral-500">
+                      <span className="text-neutral-300">AI:</span> {ex.aiText}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bottom controls */}
+          <div className="shrink-0 px-6 py-6" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+            <div className="flex items-center justify-center gap-6">
+              {/* Mute */}
+              {callState === 'active' && (
+                <button
+                  onClick={() => setIsMuted(prev => !prev)}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+                    isMuted ? 'bg-red-500/20 border border-red-500/30' : 'bg-neutral-800 border border-neutral-700/50'
+                  }`}
+                  style={{ touchAction: 'manipulation', minHeight: '56px', minWidth: '56px' }}
+                >
+                  {isMuted ? <MicOff size={22} className="text-red-400" /> : <Mic size={22} className="text-neutral-300" />}
+                </button>
+              )}
+
+              {/* Main call button */}
+              {callState === 'idle' ? (
+                <button
+                  onClick={startCall}
+                  className="w-16 h-16 rounded-full bg-emerald-500 hover:bg-emerald-400 flex items-center justify-center transition-all active:scale-90 shadow-lg shadow-emerald-500/20"
+                  style={{ touchAction: 'manipulation', minHeight: '64px', minWidth: '64px' }}
+                >
+                  <Phone size={28} className="text-white" />
+                </button>
+              ) : callState === 'active' ? (
+                <button
+                  onClick={endCall}
+                  className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 flex items-center justify-center transition-all active:scale-90 shadow-lg shadow-red-500/20 animate-pulse"
+                  style={{ touchAction: 'manipulation', minHeight: '64px', minWidth: '64px' }}
+                >
+                  <PhoneOff size={28} className="text-white" />
+                </button>
+              ) : (
+                <button
+                  onClick={endCall}
+                  className="w-16 h-16 rounded-full bg-neutral-700 flex items-center justify-center transition-all active:scale-90"
+                  style={{ touchAction: 'manipulation', minHeight: '64px', minWidth: '64px' }}
+                >
+                  <PhoneOff size={28} className="text-neutral-400" />
+                </button>
+              )}
+
+              {/* Speaker toggle */}
+              {callState === 'active' && (
+                <button
+                  onClick={() => setIsSpeakerOn(prev => !prev)}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all active:scale-90 ${
+                    isSpeakerOn ? 'bg-neutral-800 border border-neutral-700/50' : 'bg-red-500/20 border border-red-500/30'
+                  }`}
+                  style={{ touchAction: 'manipulation', minHeight: '56px', minWidth: '56px' }}
+                >
+                  {isSpeakerOn ? <Volume2 size={22} className="text-neutral-300" /> : <Speaker size={22} className="text-red-400" />}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* CSS for waveform animation */}
+          <style jsx>{`
+            @keyframes waveform-bar {
+              from { transform: scaleY(0.3); }
+              to { transform: scaleY(1); }
+            }
+          `}</style>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// =============================================
 // Main Chat Interface
 // =============================================
 export default function ChatInterface() {
@@ -1612,6 +2413,8 @@ export default function ChatInterface() {
   const [isDark, setIsDark] = useState(true);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [modelFinderOpen, setModelFinderOpen] = useState(false);
+  const [imageGenOpen, setImageGenOpen] = useState(false);
+  const [voiceCallOpen, setVoiceCallOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [generatingImage, setGeneratingImage] = useState(false);
@@ -1774,30 +2577,9 @@ export default function ChatInterface() {
   }, []);
 
   // Image generation
-  const handleImageGen = useCallback(async () => {
-    // Show prompt dialog for image generation
-    const imgPrompt = window.prompt('Nhập mô tả ảnh:');
-    if (!imgPrompt) return;
-    setGeneratingImage(true);
-    try {
-      const res = await fetch('/api/image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: imgPrompt }),
-      });
-      const data = await res.json();
-      if (data.success && data.image) {
-        addUserMessage(`[Hình ảnh] ${imgPrompt}`);
-        addAssistantMessage('', selectedAgent, AGENT_DEFINITIONS[selectedAgent].name, AGENT_DEFINITIONS[selectedAgent].color, selectedAgent);
-        updateLastMessage(`![Generated Image](data:image/png;base64,${data.image})`);
-        setLastMessageComplete();
-      }
-    } catch {
-      // error
-    } finally {
-      setGeneratingImage(false);
-    }
-  }, [input, selectedAgent, addUserMessage, addAssistantMessage, updateLastMessage, setLastMessageComplete]);
+  const handleImageGen = useCallback(() => {
+    setImageGenOpen(true);
+  }, []);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -1915,6 +2697,8 @@ export default function ChatInterface() {
       <Sidebar isOpen={sidebarOpen} onClose={toggleSidebar} />
       <WorkspacePanel isOpen={workspaceOpen} onClose={() => setWorkspaceOpen(false)} sessionId={session?.id || 'default'} />
       <ModelFinderPanel isOpen={modelFinderOpen} onClose={() => setModelFinderOpen(false)} />
+      <ImageGenPanel isOpen={imageGenOpen} onClose={() => setImageGenOpen(false)} />
+      <VoiceCallPanel isOpen={voiceCallOpen} onClose={() => setVoiceCallOpen(false)} />
 
       {/* Drag overlay */}
       {isDragging && (
@@ -1937,6 +2721,7 @@ export default function ChatInterface() {
         isDark={isDark}
         onThemeToggle={() => setIsDark(prev => !prev)}
         onImageGenClick={handleImageGen}
+        onVoiceCallClick={() => setVoiceCallOpen(true)}
       />
 
       {/* Messages area */}
